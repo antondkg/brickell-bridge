@@ -29,6 +29,12 @@ enum FL511 {
     }
 }
 
+/// Shared opening history served by the Worker in `api/`. Set BB_API to point at another deployment.
+enum StatsAPI {
+    static let base = URL(string: ProcessInfo.processInfo.environment["BB_API"] ?? "https://brickell-bridge.apaulogonc.workers.dev")!
+    static var openingsURL: URL { base.appending(path: "v1/openings").appending(queryItems: [URLQueryItem(name: "days", value: "35")]) }
+}
+
 enum BridgeState: Equatable {
     case unknown, up, down
 
@@ -213,8 +219,10 @@ final class IconAnimator {
 // MARK: - Live camera
 
 final class CameraModel: ObservableObject {
+    enum Phase: Equatable { case connecting, reconnecting, playing, offline }
+
     let player = AVPlayer()
-    @Published var message: String? = "Loading live cam…"
+    @Published var phase: Phase = .connecting
     @Published var snapshot: NSImage?
 
     private var statusObs: NSKeyValueObservation?
@@ -222,6 +230,8 @@ final class CameraModel: ObservableObject {
     private var retries = 0
     private var active = false
     private var watchdog: Timer?
+    private var attemptStarted = Date()
+    private var offlineRetry: DispatchWorkItem?
 
     init() {
         player.isMuted = true
@@ -232,10 +242,8 @@ final class CameraModel: ObservableObject {
 
     func start() {
         active = true
-        retries = 0
-        message = "Loading live cam…"
+        connect()
         loadSnapshot()
-        loadStream()
         watchdog?.invalidate()
         watchdog = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.tick() }
     }
@@ -243,27 +251,37 @@ final class CameraModel: ObservableObject {
     func stop() {
         active = false
         watchdog?.invalidate()
+        offlineRetry?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         statusObs = nil
         if let failObs { NotificationCenter.default.removeObserver(failObs) }
     }
 
+    /// Fresh attempt from scratch, used on open, by "Try again" and by the offline auto-retry.
+    func connect() {
+        offlineRetry?.cancel()
+        retries = 0
+        phase = .connecting
+        loadStream()
+    }
+
     private func loadSnapshot() {
         URLSession.shared.dataTask(with: FL511.get(FL511.snapshotURL)) { [weak self] data, _, _ in
             guard let data, let img = NSImage(data: data) else { return }
+            // FL511 serves a 540x330 "No live camera feed" PNG instead of a real snapshot; ignore it.
+            if let rep = img.representations.first, rep.pixelsWide == 540, rep.pixelsHigh == 330 { return }
             DispatchQueue.main.async { self?.snapshot = img }
         }.resume()
     }
 
     /// GetVideoUrl -> {token, sourceId, systemSourceId}; POST that to divas.cloud -> "?token=..." suffix.
     private func loadStream() {
+        attemptStarted = Date()
         fetchTokenSuffix { [weak self] suffix in
             DispatchQueue.main.async {
                 guard let self, self.active else { return }
-                guard let suffix, let url = URL(string: FL511.streamBase + suffix) else {
-                    return self.fail("Live cam unavailable. Showing latest snapshot.")
-                }
+                guard let suffix, let url = URL(string: FL511.streamBase + suffix) else { return self.retry() }
                 let asset = AVURLAsset(url: url, options: [
                     "AVURLAssetHTTPHeaderFieldsKey": ["Referer": FL511.referer, "Origin": "https://fl511.com"],
                 ])
@@ -292,13 +310,17 @@ final class CameraModel: ObservableObject {
 
     /// Hold until ~5s is buffered ahead, play, and pause again if we catch up to the live edge.
     private func tick() {
+        // A dead video server never fails the item, it just hangs; give each attempt 25 seconds.
+        if phase == .connecting || phase == .reconnecting, Date().timeIntervalSince(attemptStarted) > 25 {
+            return retry()
+        }
         guard let item = player.currentItem, item.status == .readyToPlay else { return }
         let now = player.currentTime().seconds
         let bufferedEnd = item.loadedTimeRanges.map { $0.timeRangeValue.end.seconds }.max() ?? 0
         let ahead = bufferedEnd - now
         if player.rate == 0, ahead >= 5 {
             player.play()
-            message = nil
+            phase = .playing
         } else if player.rate > 0, ahead < 0.3 {
             player.pause()
         }
@@ -316,18 +338,26 @@ final class CameraModel: ObservableObject {
         }
     }
 
-    // Tokens expire; on any failure grab a fresh one and reload.
+    // Tokens expire; on any failure grab a fresh one and reload. After 3 misses, show offline and retry every 30s.
     private func retry() {
-        guard active else { return }
+        guard active, phase != .offline else { return }
         retries += 1
-        guard retries <= 3 else { return fail("Live cam unavailable. Showing latest snapshot.") }
-        message = "Reconnecting…"
+        guard retries <= 3 else { return goOffline() }
+        phase = .reconnecting
+        attemptStarted = Date()
+        player.replaceCurrentItem(with: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.loadStream() }
     }
 
-    private func fail(_ text: String) {
-        message = text
-        loadSnapshot()
+    private func goOffline() {
+        phase = .offline
+        player.replaceCurrentItem(with: nil)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.active, self.phase == .offline else { return }
+            self.connect()
+        }
+        offlineRetry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
     }
 }
 
@@ -346,10 +376,82 @@ struct PlayerView: NSViewRepresentable {
 
 // MARK: - Popover UI
 
+struct CameraView: View {
+    @ObservedObject var camera: CameraModel
+
+    var body: some View {
+        ZStack {
+            Color.black
+            PlayerView(player: camera.player).opacity(camera.phase == .playing ? 1 : 0)
+            if camera.phase != .playing {
+                if let snap = camera.snapshot {
+                    Image(nsImage: snap).resizable().aspectRatio(contentMode: .fit)
+                    Text(camera.phase == .offline ? "Live video offline · latest snapshot" : "Connecting…")
+                        .font(.caption).padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white)
+                        .frame(maxHeight: .infinity, alignment: .bottom).padding(10)
+                } else {
+                    CameraPlaceholder(phase: camera.phase) { camera.connect() }
+                }
+            }
+        }
+        .frame(width: 384, height: 216)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// Shown while the stream warms up or when FL511 isn't sending video. The bridge leaves keep moving while it connects.
+struct CameraPlaceholder: View {
+    let phase: CameraModel.Phase
+    let retry: () -> Void
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.13, green: 0.19, blue: 0.31), Color(red: 0.04, green: 0.06, blue: 0.11)],
+                           startPoint: .top, endPoint: .bottom)
+            VStack(spacing: 8) {
+                TimelineView(.animation(paused: phase == .offline)) { ctx in
+                    let t = ctx.date.timeIntervalSinceReferenceDate
+                    let p = phase == .offline ? 0 : (sin(t * 1.8) + 1) / 2
+                    Image(nsImage: BridgeIcon.image(progress: p * p * (3 - 2 * p), state: .down))
+                        .renderingMode(.template).resizable()
+                        .frame(width: 72, height: 50)
+                        .foregroundStyle(.white.opacity(phase == .offline ? 0.45 : 0.9))
+                }
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65))
+                    .multilineTextAlignment(.center).frame(maxWidth: 280)
+                if phase == .offline {
+                    Button("Try again", action: retry).controlSize(.small).padding(.top, 2)
+                }
+            }
+        }
+    }
+
+    private var title: String {
+        switch phase {
+        case .offline: return "Live cam is offline"
+        case .reconnecting: return "Reconnecting…"
+        default: return "Connecting to the live cam"
+        }
+    }
+
+    private var detail: String {
+        switch phase {
+        case .offline: return "FL511 isn't sending video right now. Bridge status still updates, and we'll keep trying."
+        case .reconnecting: return "The stream dropped. Grabbing a fresh one."
+        default: return "FL511 starts the stream on demand. It takes about 10 seconds."
+        }
+    }
+}
+
 struct PopoverView: View {
     @ObservedObject var bridge: BridgeModel
     @ObservedObject var camera: CameraModel
+    @ObservedObject var log: EventLog
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    private var scrollHeight: CGFloat { min(620, (NSScreen.main?.visibleFrame.height ?? 900) - 190) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -364,21 +466,19 @@ struct PopoverView: View {
                 Spacer()
             }
 
-            ZStack {
-                Color.black
-                if let snap = camera.snapshot, camera.message != nil {
-                    Image(nsImage: snap).resizable().aspectRatio(contentMode: .fit)
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 18) {
+                    CameraView(camera: camera)
+                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                        StatsView(s: StatsEngine(log: log, now: ctx.date), state: bridge.state, since: bridge.since)
+                    }
                 }
-                PlayerView(player: camera.player).opacity(camera.message == nil ? 1 : 0)
-                if let msg = camera.message, !msg.isEmpty {
-                    Text(msg).font(.caption).padding(6)
-                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-                        .foregroundStyle(.white)
-                        .frame(maxHeight: .infinity, alignment: .bottom).padding(8)
-                }
+                .padding(.bottom, 4)
             }
-            .frame(width: 384, height: 216)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .scrollIndicators(.never)
+            .frame(width: 384, height: scrollHeight)
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.95), .init(color: .clear, location: 1)],
+                                 startPoint: .top, endPoint: .bottom))
 
             HStack {
                 Button("Open FL511 Cameras") { NSWorkspace.shared.open(FL511.camerasPage) }
@@ -422,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private let bridge = BridgeModel()
     private let camera = CameraModel()
+    private let log = EventLog()
     private var stateSink: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -433,13 +534,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: PopoverView(bridge: bridge, camera: camera))
+        popover.contentViewController = NSHostingController(rootView: PopoverView(bridge: bridge, camera: camera, log: log))
 
         stateSink = bridge.$state.sink { [weak self] state in self?.animator.set(state) }
-        bridge.onChange = { _, new in Self.notify(new) }
+        bridge.onChange = { [weak self] _, new in
+            Self.notify(new)
+            // Give the server a moment to record the change, then pull fresh history.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self?.log.refresh() }
+        }
 
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         bridge.start()
+        log.start()
     }
 
     @objc private func togglePopover() {
@@ -447,6 +553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)
         } else if let button = statusItem.button {
             bridge.poll()
+            log.refresh()
             camera.start()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()

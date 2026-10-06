@@ -7,7 +7,7 @@ APP="BrickellBridge.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -O -swift-version 5 -target arm64-apple-macos14.0 main.swift -o "$APP/Contents/MacOS/BrickellBridge" \
+swiftc -O -swift-version 5 -target arm64-apple-macos14.0 main.swift Stats.swift -o "$APP/Contents/MacOS/BrickellBridge" \
   -framework Cocoa -framework AVKit -framework ServiceManagement -framework UserNotifications
 
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

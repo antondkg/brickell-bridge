@@ -1,3 +1,4 @@
 *.app
 *.zip
 .DS_Store
+design/

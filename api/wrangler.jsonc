@@ -1,0 +1,14 @@
+{
+  // Polls FL511 every 15s from a Durable Object alarm and serves opening history to the app.
+  "name": "brickell-bridge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "vars": { "BRIDGE_ID": "253" },
+  "durable_objects": {
+    "bindings": [{ "name": "TRACKER", "class_name": "BridgeTracker" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BridgeTracker"] }],
+  // Safety net: re-arms the polling alarm if it ever stops.
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "observability": { "enabled": true }
+}
