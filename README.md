@@ -25,7 +25,7 @@ A tiny macOS menu bar app that shows the live status of Miami's Brickell Avenue 
 
 ## Website
 
-**[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell built from real data. Every building comes from OpenStreetMap footprints and heights, and the ground and rooftops are Miami-Dade County's 2025 aerial photos, stored in the repo. The bridge raises and lowers with the live status. You can drag around, scrub the time of day, or hit **Watch it open**. Add `?t=19.5` to the URL to pin a time.
+**[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell with the bridge raising and lowering with the real status. By default it streams Google's photorealistic 3D city, with our animated bascule span cut into it. If that's unavailable (no key, or the daily cap is reached), it falls back to a model built entirely from stored open data: OpenStreetMap buildings and Miami-Dade County's 2025 aerial photos. You can drag around, scrub the time of day, or hit **Watch it open**. Add `?t=19.5` to pin a time, or `?map=model` to see the open-data model.
 
 ## Why
 
@@ -204,7 +204,7 @@ curl -s 'https://fl511.com/List/GetData/Cameras?query=%7B%22columns%22%3A%5B%7B%
 | Aerial photos | Miami-Dade County 2025 aerial imagery via `api/scripts/build_imagery.py` | Florida public record, credited on the page |
 | Opening rules | 33 CFR 117.305 | Public domain |
 
-The optional **Photoreal** button streams Google's photorealistic 3D tiles live, per Google's terms. Nothing from Google is stored.
+Photoreal mode streams Google's photorealistic 3D tiles live, per Google's terms. Nothing from Google is stored, and the key lives in a worker secret (`GOOGLE_TILES_KEY`), not in the repo.
 
 ## Privacy
 

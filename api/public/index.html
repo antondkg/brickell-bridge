@@ -854,17 +854,21 @@ function plantPalms() {
 // ---------------------------------------------------------------- Google photorealistic layer (optional)
 let tiles = null, photoOn = false, googleKey = null;
 const photoU = { uNight: night };
+// Photoreal is the default; the stored OpenStreetMap + aerial model is the fallback (no key, daily cap reached, or errors).
 async function setupGoogle() {
   try { googleKey = (await (await fetch("/config.json")).json()).googleTilesKey; } catch {}
   $("photo").disabled = !googleKey;
+}
+const wantPhoto = () => googleKey && new URLSearchParams(location.search).get("map") !== "model";
+function applyMode() {
+  for (const m of cityMeshes) m.visible = !photoOn;
 }
 async function enablePhoto(on) {
   photoOn = on;
   $("photo").setAttribute("aria-pressed", on);
   $("googleCredit").hidden = !on;
-  for (const m of cityMeshes) m.visible = !on;
+  applyMode();
   if (on && !tiles) {
-    toast("Loading Google 3D tiles…");
     try {
       const [{ TilesRenderer }, plugins, { DRACOLoader }] = await Promise.all([
         import("3d-tiles-renderer"), import("3d-tiles-renderer/plugins"), import("three/addons/loaders/DRACOLoader.js"),
@@ -884,7 +888,7 @@ async function enablePhoto(on) {
       tiles.addEventListener("load-model", ({ scene: model }) => model.traverse((o) => { if (o.material) patchPhoto(o.material); }));
       tiles.addEventListener("load-error", (e) => {
         console.warn("tiles error", e);
-        if (!tiles.root) { toast("Google 3D isn't available right now. Showing the map model."); enablePhoto(false); $("photo").disabled = true; }
+        if (!tiles.root && photoOn) { toast("Photoreal isn't available right now. Showing the map model."); enablePhoto(false); $("photo").disabled = true; }
       });
       // the plugin points +z north; this scene uses -z for north
       const holder = new THREE.Group();
@@ -1098,7 +1102,7 @@ const hourLabel = (h) => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1
 timeInput.addEventListener("input", () => { timeOverride = timeInput.value / 60; liveBtn.setAttribute("aria-pressed", "false"); });
 liveBtn.addEventListener("click", () => { timeOverride = null; liveBtn.setAttribute("aria-pressed", "true"); });
 $("demo").addEventListener("click", () => { demoUntil = Date.now() + 60000; nextTall = 0; render(); setTimeout(render, 60100); });
-$("photo").addEventListener("click", () => enablePhoto(!photoOn));
+$("photo").addEventListener("click", () => { if (!photoOn && !tiles) toast("Loading photoreal 3D…"); enablePhoto(!photoOn); });
 $("sound").addEventListener("click", () => {
   const on = sound.toggle();
   $("sound").setAttribute("aria-pressed", on);
@@ -1156,7 +1160,8 @@ function frame() {
 }
 
 (async () => {
-  loadStatus(); loadOpenings(); loadForecast(); setupGoogle();
+  loadStatus(); loadOpenings(); loadForecast();
+  const google = setupGoogle();
   setInterval(loadStatus, 15000);
   setInterval(loadOpenings, 60000);
   setInterval(loadForecast, 60000);
@@ -1170,6 +1175,7 @@ function frame() {
     const r = city.river, lx = r[r.length - 2], lz = r[r.length - 1];
     riv = polyline(r, [[lx + 160, lz + 30], [lx + 500, lz + 140], [lx + 1100, lz + 260]]);   // carry on into Biscayne Bay
     plantPalms();
+    applyMode();
     await loadOrtho().then(() => { roadMeshRef.visible = false; }).catch((err) => console.warn("aerial imagery unavailable", err));
   } catch (err) {
     console.error(err);
@@ -1178,6 +1184,8 @@ function frame() {
   setLoad(1);
   requestAnimationFrame(frame);
   setTimeout(() => $("loading").classList.add("gone"), 300);
+  await google;
+  if (wantPhoto()) enablePhoto(true);
 })();
 </script>
 </body>
