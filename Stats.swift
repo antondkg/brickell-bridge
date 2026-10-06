@@ -40,7 +40,7 @@ final class EventLog: ObservableObject {
         var req = URLRequest(url: StatsAPI.openingsURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         req.setValue("BrickellBridge-macOS", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-            guard let data, let res = try? Self.decoder.decode(Response.self, from: data) else { return }
+            guard let data, let res = try? apiDecoder.decode(Response.self, from: data) else { return }
             DispatchQueue.main.async {
                 self?.trackingSince = res.trackingSince
                 self?.openings = res.openings
@@ -48,12 +48,48 @@ final class EventLog: ObservableObject {
             }
         }.resume()
     }
+}
 
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
+/// The API sends ISO 8601 dates without fractional seconds.
+let apiDecoder: JSONDecoder = {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    return d
+}()
+
+// MARK: - Forecast (federal schedule + boats on AIS)
+
+struct Forecast: Decodable {
+    struct Boat: Decodable {
+        let name: String?
+        let kind: String
+        let etaMin: Int?
+        let side: String
+    }
+    let mode: String            // "on-signal" | "half-hourly" | "closed-to-boats"
+    let reason: String
+    let modeUntil: Date?
+    let nextSlots: [Date]
+    let boats: [Boat]?
+}
+
+final class ForecastModel: ObservableObject {
+    @Published private(set) var forecast: Forecast?
+    private var timer: Timer?
+
+    func start() {
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refresh() }
+    }
+
+    func refresh() {
+        var req = URLRequest(url: StatsAPI.base.appending(path: "v1/forecast"), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        req.setValue("BrickellBridge-macOS", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let data, let f = try? apiDecoder.decode(Forecast.self, from: data) else { return }
+            DispatchQueue.main.async { self?.forecast = f }
+        }.resume()
+    }
 }
 
 // MARK: - Stats math
@@ -65,9 +101,17 @@ struct Span {
 }
 
 /// Everything the stats section shows, derived from the log at a point in time.
+/// The bridge is in Miami, so days, hours and times are Miami's no matter where the Mac is.
+let miamiTZ = TimeZone(identifier: "America/New_York")!
+let miamiCalendar: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = miamiTZ
+    return c
+}()
+
 struct StatsEngine {
     let now: Date
-    let cal = Calendar.current
+    let cal = miamiCalendar
     let today: Date
     let nowMinute: Double
     let closed: [Span]
@@ -86,7 +130,7 @@ struct StatsEngine {
         ongoing = log.openings.last.flatMap { $0.end == nil ? Span(start: $0.start, end: now) : nil }
         var all = closed
         if let ongoing { all.append(ongoing) }
-        byDay = Dictionary(grouping: all) { Calendar.current.startOfDay(for: $0.start) }
+        byDay = Dictionary(grouping: all) { miamiCalendar.startOfDay(for: $0.start) }
 
         // A partial first day would skew averages, so history starts at the first full day.
         let start = cal.startOfDay(for: log.trackingSince)
@@ -189,16 +233,19 @@ enum Fmt {
     static let time: DateFormatter = {
         let f = DateFormatter()
         f.timeStyle = .short
+        f.timeZone = miamiTZ
         return f
     }()
     static let day: DateFormatter = {
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("EEEMMMd")
+        f.timeZone = miamiTZ
         return f
     }()
     static let weekday: DateFormatter = {
         let f = DateFormatter()
         f.setLocalizedDateFormatFromTemplate("EEE")
+        f.timeZone = miamiTZ
         return f
     }()
 
@@ -278,10 +325,11 @@ struct StatsView: View {
     let s: StatsEngine
     let state: BridgeState
     let since: Date?
+    var forecast: Forecast?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            RightNow(s: s, state: state, since: since)
+            RightNow(s: s, state: state, since: since, forecast: forecast)
             TodaySection(s: s)
             if s.hasHistory {
                 WeekBars(s: s)
@@ -305,10 +353,11 @@ private struct RightNow: View {
     let s: StatsEngine
     let state: BridgeState
     let since: Date?
+    let forecast: Forecast?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(title: "Right now", detail: Fmt.time.string(from: s.now))
+            SectionLabel(title: "Right now", detail: "\(Fmt.time.string(from: s.now)) in Miami")
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -320,8 +369,37 @@ private struct RightNow: View {
                     if state != .up { rings }
                 }
                 if let note { HStack(spacing: 8) { chip; Text(note).font(.system(size: 12)) } }
+                if let line = forecastLine {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(line.tag.uppercased())
+                            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                        Text(line.text).font(.system(size: 11.5)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             .card()
+        }
+    }
+
+    /// Same wording as brickellbridge.fun: an approaching boat beats the schedule.
+    private var forecastLine: (tag: String, text: String)? {
+        guard let f = forecast else { return nil }
+        if let boat = f.boats?.first, let eta = boat.etaMin {
+            let who = boat.name.map { "\(boat.kind.capitalized) \($0)" } ?? "A \(boat.kind)"
+            return ("Boat coming", "\(who) is heading for the bridge from the \(boat.side), about \(eta) min out.")
+        }
+        let until = f.modeUntil.map { Fmt.time.string(from: $0) }
+        switch f.mode {
+        case "closed-to-boats":
+            return ("No openings", "It's the \(f.reason), so it won't open for boats until \(until ?? "later"), except tugs and emergencies.")
+        case "half-hourly":
+            let slots = f.nextSlots.prefix(2).map { Fmt.time.string(from: $0) }
+            return ("Schedule", "Weekdays it only opens on the hour and half hour. Next possible: \(slots.joined(separator: ", then ")).")
+        default:
+            return ("On signal", "No schedule limits right now. It can open whenever a boat signals\(until.map { ", until \($0)" } ?? "").")
         }
     }
 
@@ -520,13 +598,13 @@ private struct HeatmapSection: View {
                 VStack(spacing: 2) {
                     ForEach(rows, id: \.self) { wd in
                         HStack(spacing: 2) {
-                            Text(Calendar.current.shortWeekdaySymbols[wd - 1]).font(.system(size: 9.5)).foregroundStyle(.tertiary)
+                            Text(miamiCalendar.shortWeekdaySymbols[wd - 1]).font(.system(size: 9.5)).foregroundStyle(.tertiary)
                                 .frame(width: 28, alignment: .leading)
                             ForEach(0..<24, id: \.self) { h in
                                 let v = grid[wd]?[h] ?? 0
                                 RoundedRectangle(cornerRadius: 2.5).fill(shade(v / maxV))
                                     .aspectRatio(1, contentMode: .fit)
-                                    .help("\(Calendar.current.shortWeekdaySymbols[wd - 1]) \(Fmt.hour(h)) · \(String(format: "%.1f", v)) openings on average")
+                                    .help("\(miamiCalendar.shortWeekdaySymbols[wd - 1]) \(Fmt.hour(h)) · \(String(format: "%.1f", v)) openings on average")
                             }
                         }
                     }
@@ -544,7 +622,7 @@ private struct HeatmapSection: View {
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
                 HStack(alignment: .top, spacing: 8) {
                     if let best {
-                        Callout(title: "Busiest: \(Calendar.current.shortWeekdaySymbols[best.0 - 1]) \(Fmt.hour(best.1))",
+                        Callout(title: "Busiest: \(miamiCalendar.shortWeekdaySymbols[best.0 - 1]) \(Fmt.hour(best.1))",
                                 detail: String(format: "%.1f openings that hour on average", best.2))
                     }
                     Callout(title: rush < 0.05 ? "Safest: weekday rush hours" : "Rush hours",
@@ -810,7 +888,7 @@ private struct CollectingCard: View {
 enum DemoData {
     static func make(now: Date = Date()) -> (Date, [Opening]) {
         var rng = SplitMix(seed: 511253)
-        let cal = Calendar.current
+        let cal = miamiCalendar
         let today = cal.startOfDay(for: now)
         let weekday: [Double] = [0.2, 0.1, 0.05, 0.05, 0.05, 0.15, 0.35, 0, 0, 0.7, 1, 1.1, 1.2, 1.3, 1.3, 1.1, 0.45, 0, 0.5, 0.9, 0.8, 0.6, 0.45, 0.3]
         let weekend: [Double] = [0.4, 0.25, 0.1, 0.05, 0.05, 0.1, 0.3, 0.6, 0.9, 1.3, 1.6, 1.9, 2, 2.1, 2, 1.8, 1.5, 1.2, 1, 0.9, 0.8, 0.7, 0.55, 0.45]

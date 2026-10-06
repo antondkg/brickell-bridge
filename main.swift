@@ -449,6 +449,7 @@ struct PopoverView: View {
     @ObservedObject var bridge: BridgeModel
     @ObservedObject var camera: CameraModel
     @ObservedObject var log: EventLog
+    @ObservedObject var forecast: ForecastModel
     let scrollHeight: CGFloat
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -469,7 +470,7 @@ struct PopoverView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     CameraView(camera: camera)
                     TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        StatsView(s: StatsEngine(log: log, now: ctx.date), state: bridge.state, since: bridge.since)
+                        StatsView(s: StatsEngine(log: log, now: ctx.date), state: bridge.state, since: bridge.since, forecast: forecast.forecast)
                     }
                 }
                 .padding(.bottom, 4)
@@ -500,6 +501,7 @@ struct PopoverView: View {
         guard let since = bridge.since, bridge.state != .unknown else { return bridge.state.subtitle }
         let f = DateFormatter()
         f.timeStyle = .short
+        f.timeZone = miamiTZ
         let mins = Int(Date().timeIntervalSince(since) / 60)
         let ago: String
         if mins < 1 {
@@ -522,6 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let bridge = BridgeModel()
     private let camera = CameraModel()
     private let log = EventLog()
+    private let forecast = ForecastModel()
     private var hosting: NSHostingController<PopoverView>!
     private var stateSink: Any?
 
@@ -549,6 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         bridge.start()
         log.start()
+        forecast.start()
     }
 
     @objc private func togglePopover() {
@@ -557,6 +561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else if let button = statusItem.button {
             bridge.poll()
             log.refresh()
+            forecast.refresh()
             camera.start()
             fitPopover(to: button.window?.screen ?? NSScreen.main)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -565,7 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func popoverView(scrollHeight: CGFloat) -> PopoverView {
-        PopoverView(bridge: bridge, camera: camera, log: log, scrollHeight: scrollHeight)
+        PopoverView(bridge: bridge, camera: camera, log: log, forecast: forecast, scrollHeight: scrollHeight)
     }
 
     /// Size the scrolling area so the whole popover fits under the menu bar of the screen it opens on.

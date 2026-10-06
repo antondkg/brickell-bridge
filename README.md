@@ -37,6 +37,7 @@ If you live or work around Brickell, you know the bridge goes up at the worst po
 - **Animated icon.** The bridge leaves raise and lower when the status changes, and the icon turns red while the bridge is up.
 - **Live camera.** Click the icon to watch the Brickell Bridge CCTV stream right in the popover.
 - **"Since" timer.** See when the bridge last changed and how long ago.
+- **Forecast.** Knows the federal opening schedule (half-hourly on weekdays, no openings at rush hour) and warns when a tug, freighter or tall boat is heading for the bridge, using live AIS ship tracking.
 - **Stats.** Chance it opens in the next 15, 30 or 60 minutes, when the next opening usually happens, today's timeline, a weekly chart, an hour-by-day heatmap, how long openings last, a 5-week calendar, and records.
 - **Shared history.** A small server logs every opening around the clock, so everyone sees the same stats, even when their Mac was asleep.
 - **Notifications.** Get a macOS notification when the bridge goes up or comes down.
