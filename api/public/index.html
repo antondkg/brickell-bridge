@@ -306,7 +306,7 @@ const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.classList.
 // ---------------------------------------------------------------- renderer, scene, camera
 const canvas = $("scene");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !MOBILE, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.75 : 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 1.75));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = !MOBILE;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -542,9 +542,7 @@ const PALETTE = [0xe9e4da, 0xd9d4ca, 0xf1efe9, 0xc9c5bd, 0xb8b6b0, 0xe2d8c3, 0xd
 const beaconSpots = [], beacons = [];
 let cityMeshes = [], roadMeshRef = null;
 
-async function buildCity() {
-  setLoad(0.1, "Loading Brickell");
-  const city = await (await fetch("/city.json")).json();
+async function buildCity(city) {
   setLoad(0.25, "Raising towers");
   const [vx0, vz0, vx1, vz1] = city.view;
 
@@ -1015,13 +1013,31 @@ if (location.hostname === "localhost") window.__bb = { THREE, get tiles() { retu
 const modelLevel = { ...level };
 let photoLevel = null;
 function applyMode() {
+  sun.castShadow = !MOBILE && !photoOn;
   for (const m of cityMeshes) m.visible = !photoOn;
   modelOnly.visible = !photoOn;
   if (!photoOn && calibrated) { photoLevel = { ...level }; Object.assign(level, modelLevel); }
   if (photoOn && photoLevel) Object.assign(level, photoLevel);
   applyLevels();
 }
+// The stored model (buildings, land, aerial photos, palms) is only built when it's shown: as the fallback,
+// with ?map=model, or when someone turns Photoreal off. Photoreal visitors never download it.
+let cityData = null, modelReady = null;
+function ensureModel() {
+  if (!modelReady) {
+    modelReady = (async () => {
+      const t0 = performance.now();
+      await buildCity(cityData);
+      plantPalms();
+      applyMode();
+      console.log(`model built in ${Math.round(performance.now() - t0)} ms`);
+      await loadOrtho().then(() => { roadMeshRef.visible = false; }).catch((err) => console.warn("aerial imagery unavailable", err));
+    })();
+  }
+  return modelReady;
+}
 async function enablePhoto(on) {
+  if (!on) ensureModel();
   photoOn = on;
   $("photo").setAttribute("aria-pressed", on);
   $("googleCredit").hidden = !on;
@@ -1039,7 +1055,7 @@ async function enablePhoto(on) {
       tiles.registerPlugin(new plugins.UnloadTilesPlugin());
       // street level here sits about 25 m below the WGS84 ellipsoid (geoid -27 m, ground +2 m)
       tiles.registerPlugin(new plugins.ReorientationPlugin({ lat: LAT0 * THREE.MathUtils.DEG2RAD, lon: LON0 * THREE.MathUtils.DEG2RAD, height: -25, recenter: true }));
-      tiles.errorTarget = MOBILE ? 20 : 10;
+      tiles.errorTarget = MOBILE ? 24 : 14;   // higher = fewer, coarser tiles; keeps phones smooth
       tiles.setCamera(camera);
       tiles.setResolutionFromRenderer(camera, renderer);
       tiles.addEventListener("load-model", ({ scene: model }) => model.traverse((o) => { if (o.material) patchPhoto(o.material); }));
@@ -1428,17 +1444,16 @@ function frame() {
   setInterval(loadOpenings, 60000);
   setInterval(loadForecast, 60000);
   setInterval(render, 30000);
-  const t0 = performance.now();
   try {
-    const city = await buildCity();
-    console.log(`city built in ${Math.round(performance.now() - t0)} ms`);
-    road = polyline(city.route);
+    setLoad(0.15, "Loading Brickell");
+    cityData = await (await fetch("/city.json")).json();
+    road = polyline(cityData.route);
     initCars();
-    const r = city.river, lx = r[r.length - 2], lz = r[r.length - 1];
+    const r = cityData.river, lx = r[r.length - 2], lz = r[r.length - 1];
     riv = polyline(r, [[lx + 160, lz + 30], [lx + 500, lz + 140], [lx + 1100, lz + 260]]);   // carry on into Biscayne Bay
-    plantPalms();
-    applyMode();
-    await loadOrtho().then(() => { roadMeshRef.visible = false; }).catch((err) => console.warn("aerial imagery unavailable", err));
+    await google;
+    if (wantPhoto()) enablePhoto(true);
+    else await ensureModel();
   } catch (err) {
     console.error(err);
     toast("Couldn't load the city model.");
@@ -1446,8 +1461,6 @@ function frame() {
   setLoad(1);
   requestAnimationFrame(frame);
   setTimeout(() => $("loading").classList.add("gone"), 300);
-  await google;
-  if (wantPhoto()) enablePhoto(true);
 })();
 </script>
 </body>
