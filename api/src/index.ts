@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { AIS_BOX, assess, parseMessage, type Vessel } from "./ais";
+import { RIVER_BRIDGES, SOUTH_MIAMI, estimateSouthMiami, inferSouthMiami, learnTravelMin, type Live, type Opening } from "./river";
 
 interface Env {
   TRACKER: DurableObjectNamespace<BridgeTracker>;
@@ -51,6 +52,8 @@ export class BridgeTracker extends DurableObject<Env> {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS openings (start INTEGER PRIMARY KEY, end INTEGER);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS river_openings (bridge TEXT, start INTEGER, end INTEGER, PRIMARY KEY (bridge, start));
+      CREATE TABLE IF NOT EXISTS river_state (bridge TEXT PRIMARY KEY, name TEXT, state TEXT, since INTEGER, checked INTEGER);
       CREATE TABLE IF NOT EXISTS vessels (
         mmsi INTEGER PRIMARY KEY, name TEXT, type INTEGER, length REAL,
         lat REAL, lon REAL, sog REAL, cog REAL, updated INTEGER
@@ -97,6 +100,97 @@ export class BridgeTracker extends DurableObject<Env> {
     this.setMeta("since", since == null ? "" : String(since));
     this.setMeta("checked_at", String(now));
     this.record(state, since, now);
+
+    // Every other Miami River bridge FL511 reports comes in the same response.
+    for (const b of RIVER_BRIDGES) {
+      const r = b.fl511Id && json.data.find((x) => x.DT_RowId === b.fl511Id);
+      if (!r) continue;
+      const st = parseState(String(r.status ?? ""));
+      const sn = Number(r.lastNotificationTime) || null;
+      this.sql.exec(
+        "INSERT INTO river_state (bridge, name, state, since, checked) VALUES (?, ?, ?, ?, ?) ON CONFLICT(bridge) DO UPDATE SET name = excluded.name, state = excluded.state, since = excluded.since, checked = excluded.checked",
+        b.key, b.name, st, sn, now,
+      );
+      this.recordRiver(b.key, st, sn, now);
+    }
+  }
+
+  /** Same rules as record(), for any river bridge. */
+  private recordRiver(bridge: string, state: State, since: number | null, now: number) {
+    const at = Math.min(since ?? now, now);
+    const last = this.sql
+      .exec<{ start: number; end: number | null }>("SELECT start, end FROM river_openings WHERE bridge = ? ORDER BY start DESC LIMIT 1", bridge)
+      .toArray()[0];
+    if (state === "up") {
+      if (last && last.end == null) {
+        if (at - last.start <= 60) return;
+        this.sql.exec("DELETE FROM river_openings WHERE bridge = ? AND start = ?", bridge, last.start);
+      } else if (last && last.end != null && at <= last.end) {
+        return;
+      }
+      this.sql.exec("INSERT OR IGNORE INTO river_openings (bridge, start, end) VALUES (?, ?, NULL)", bridge, at);
+    } else if (state === "down") {
+      if (!last || last.end != null) return;
+      const end = Math.max(at, last.start);
+      if (end - last.start > MAX_OPENING_S) this.sql.exec("DELETE FROM river_openings WHERE bridge = ? AND start = ?", bridge, last.start);
+      else this.sql.exec("UPDATE river_openings SET end = ? WHERE bridge = ? AND start = ?", end, bridge, last.start);
+    }
+  }
+
+  private brickellOpenings(from: number): Opening[] {
+    return this.sql.exec<Opening>("SELECT start, end FROM openings WHERE start >= ? ORDER BY start", from).toArray();
+  }
+
+  private riverOpenings(bridge: string, from: number): Opening[] {
+    return this.sql.exec<Opening>("SELECT start, end FROM river_openings WHERE bridge = ? AND start >= ? ORDER BY start", bridge, from).toArray();
+  }
+
+  private riverLive(bridge: string): Live {
+    const r = this.sql.exec<{ state: Live["state"]; since: number | null }>("SELECT state, since FROM river_state WHERE bridge = ?", bridge).toArray()[0];
+    return r ?? { state: "unknown", since: null };
+  }
+
+  /** Every river bridge's state, the South Miami Avenue estimate, and an early warning for Brickell. */
+  private riverSummary() {
+    const now = nowS();
+    const history = now - 60 * 86400;
+    const brickellHist = this.brickellOpenings(history);
+    const sw2Hist = this.riverOpenings("sw-2nd-ave", history);
+    const travel = learnTravelMin(brickellHist, sw2Hist);
+    const brickell: Live = { state: (this.meta("state") as Live["state"]) ?? "unknown", since: Number(this.meta("since")) || null };
+    const sw2 = this.riverLive("sw-2nd-ave");
+    const lastB = brickellHist[brickellHist.length - 1];
+    const lastS = sw2Hist[sw2Hist.length - 1];
+    const boatBetween = this.sql
+      .exec("SELECT 1 FROM vessels WHERE lat BETWEEN 25.767 AND 25.772 AND lon BETWEEN ? AND ? AND sog >= 0.5 AND updated > ?",
+        SOUTH_MIAMI.lonWest, SOUTH_MIAMI.lonEast, now - 600)
+      .toArray().length > 0;
+    const southMiami = estimateSouthMiami(now, brickell, sw2, lastB, lastS, boatBetween);
+
+    // Early warning: an upstream bridge opened and Brickell hasn't yet, so a boat is probably coming down.
+    let upstream: Record<string, unknown> | null = null;
+    if (brickell.state !== "up") {
+      for (const [key, name, factor] of [["sw-2nd-ave", "SW 2nd Avenue", 1], ["sw-1st-st", "SW 1st Street", 2]] as const) {
+        const last = this.riverOpenings(key, now - 3600).pop();
+        const expected = last ? last.start + travel.minutes * factor * 60 : 0;
+        if (last && now < expected + 10 * 60 && (!lastB || lastB.start < last.start)) {
+          upstream = { from: name, openedAt: iso(last.start), brickellExpected: iso(expected), minutes: Math.max(0, Math.round((expected - now) / 60)) };
+          break;
+        }
+      }
+    }
+
+    const midnightMiami = now - local(new Date(now * 1000)).minute * 60 - (now % 60);   // start of today in Miami
+    const bridges = RIVER_BRIDGES.map((b) => {
+      if (!b.fl511Id) {
+        return { key: b.key, name: b.name, source: "estimated", ...southMiami,
+          inferredToday: inferSouthMiami(brickellHist, sw2Hist).filter((o) => o.start >= midnightMiami).length };
+      }
+      const live = b.key === "brickell" ? brickell : this.riverLive(b.key);
+      return { key: b.key, name: b.name, source: "fl511", state: live.state, since: iso(live.since),
+        openingsToday: b.key === "brickell" ? brickellHist.filter((o) => o.start >= midnightMiami).length : this.riverOpenings(b.key, midnightMiami).length };
+    });
+    return { bridges, southMiami, upstream, travel: { sw2ToBrickellMin: travel.minutes, learnedFrom: travel.samples } };
   }
 
   private aisBusy = false;
@@ -218,6 +312,8 @@ export class BridgeTracker extends DurableObject<Env> {
       });
     }
 
+    if (url.pathname === "/v1/river") return Response.json(this.riverSummary());
+
     if (url.pathname === "/v1/kick") return new Response("ok");
     return new Response("Not found", { status: 404 });
   }
@@ -329,8 +425,11 @@ export default {
         try {
           const v = (await (await tracker(env).fetch("https://tracker/v1/vessels")).json()) as { vessels: { approaching: boolean; needsOpening: boolean }[] };
           fc.boats = v.vessels.filter((b) => b.approaching && b.needsOpening).slice(0, 5);
+          const river = (await (await tracker(env).fetch("https://tracker/v1/river")).json()) as Record<string, unknown>;
+          fc.southMiami = river.southMiami;
+          fc.upstream = river.upstream;
         } catch {
-          fc.boats = [];
+          fc.boats = fc.boats ?? [];
         }
       }
       return Response.json(fc, { headers: { ...CORS, "Cache-Control": "public, max-age=30" } });
@@ -345,7 +444,7 @@ export default {
         {
           name: "Brickell Bridge API",
           source: "https://github.com/antondkg/brickell-bridge",
-          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels"],
+          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels", "/v1/river"],
           note: "Unofficial. Data comes from FL511 and may lag the real world.",
         },
         { headers: CORS },

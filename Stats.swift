@@ -66,11 +66,25 @@ struct Forecast: Decodable {
         let etaMin: Int?
         let side: String
     }
+    /// South Miami Avenue isn't on FL511; the server estimates it from Brickell, SW 2nd Ave and AIS.
+    struct SouthMiami: Decodable {
+        let state: String       // "likely-up" | "opening-soon" | "likely-down"
+        let confidence: String
+        let reason: String
+    }
+    /// An upstream bridge opened and Brickell hasn't yet: a boat is probably coming down the river.
+    struct Upstream: Decodable {
+        let from: String
+        let openedAt: Date
+        let brickellExpected: Date
+    }
     let mode: String            // "on-signal" | "half-hourly" | "closed-to-boats"
     let reason: String
     let modeUntil: Date?
     let nextSlots: [Date]
     let boats: [Boat]?
+    let southMiami: SouthMiami?
+    let upstream: Upstream?
 }
 
 final class ForecastModel: ObservableObject {
@@ -369,6 +383,7 @@ private struct RightNow: View {
                     if state != .up { rings }
                 }
                 if let note { HStack(spacing: 8) { chip; Text(note).font(.system(size: 12)) } }
+                if let sm = forecast?.southMiami { SouthMiamiRow(estimate: sm) }
                 if let line = forecastLine {
                     HStack(alignment: .top, spacing: 8) {
                         Text(line.tag.uppercased())
@@ -390,6 +405,9 @@ private struct RightNow: View {
         if let boat = f.boats?.first, let eta = boat.etaMin {
             let who = boat.name.map { "\(boat.kind.capitalized) \($0)" } ?? "A \(boat.kind)"
             return ("Boat coming", "\(who) is heading for the bridge from the \(boat.side), about \(eta) min out.")
+        }
+        if let up = f.upstream, state != .up {
+            return ("Heads up", "\(up.from) opened at \(Fmt.time.string(from: up.openedAt)), so a boat is probably coming down the river. Brickell may open around \(Fmt.time.string(from: up.brickellExpected)).")
         }
         let until = f.modeUntil.map { Fmt.time.string(from: $0) }
         switch f.mode {
@@ -464,6 +482,28 @@ private struct RightNow: View {
                 }
             }
         }
+    }
+}
+
+private struct SouthMiamiRow: View {
+    let estimate: Forecast.SouthMiami
+
+    var body: some View {
+        let (label, color): (String, Color) = {
+            switch estimate.state {
+            case "likely-up": return ("likely up", upColor)
+            case "opening-soon": return ("may open next", .orange)
+            default: return ("likely down", downColor)
+            }
+        }()
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text("\(Text("South Miami Ave bridge: ").foregroundColor(.secondary))\(Text(label).fontWeight(.semibold))")
+                .font(.system(size: 12))
+            Text("estimated").font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .help(estimate.reason)
     }
 }
 

@@ -148,7 +148,12 @@ FL511 only reports the current status, so history needs something that's always 
 | --- | --- |
 | [`/v1/status`](https://api.brickellbridge.fun/v1/status) | Current state, when it last changed, and when the server last checked. |
 | [`/v1/openings?days=35`](https://api.brickellbridge.fun/v1/openings?days=35) | Every opening in the window (`start`, `end`, ISO 8601, `end` is null while up), plus `trackingSince`. Up to 120 days. |
+| [`/v1/river`](https://api.brickellbridge.fun/v1/river) | Every Miami River drawbridge FL511 reports, in order from the bay, plus an estimate for South Miami Avenue (which FL511 doesn't report) and an early warning when an upstream bridge opens before Brickell. |
 | [`/v1/forecast`](https://api.brickellbridge.fun/v1/forecast) | Where the federal opening schedule stands now (`on-signal`, `half-hourly` or `closed-to-boats`), until when, and the next times the bridge may open. Add `?at=` with an ISO time to check any moment. |
+
+### South Miami Avenue and the rest of the river
+
+Boats on the Miami River open the drawbridges one after another, so the server logs every one FL511 reports. South Miami Avenue (mile 0.3) isn't on FL511, but it sits between Brickell (mile 0.1) and SW 2nd Avenue (mile 0.5): when those two open for the same boat, South Miami Avenue opened in between. Its live state is estimated from those two bridges and from boats on AIS between them, and it's always labeled as an estimate. When SW 2nd Avenue or SW 1st Street opens before Brickell, a boat is probably heading down, and the travel time to Brickell is learned from history.
 
 ### The opening schedule
 
