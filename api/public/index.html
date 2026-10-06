@@ -1069,6 +1069,13 @@ function render() {
       $("fcText").innerHTML = `No schedule limits right now (${f.reason}). It can open any time a boat signals${until ? `, until ${until}` : ""}.`;
     }
   }
+  // AIS: a tall boat on its way beats the schedule as a predictor
+  const boat = f?.boats?.[0];
+  if (boat) {
+    const who = boat.name ? `${boat.kind[0].toUpperCase() + boat.kind.slice(1)} <b>${boat.name}</b>` : `A ${boat.kind}`;
+    $("fcTag").textContent = "Boat coming";
+    $("fcText").innerHTML = `${who} is heading for the bridge from the ${boat.side}, about <b>${boat.etaMin} min</b> out. It'll likely need an opening.`;
+  }
   $("facts").innerHTML = live.loaded
     ? `<span>Today <b>${live.todayCount}</b> openings</span><span><b>${fmtDur(live.todayMin)}</b> up</span>` + (live.median ? `<span>Typical opening <b>${fmtDur(live.median)}</b></span>` : "")
     : "";

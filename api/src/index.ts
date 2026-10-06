@@ -1,10 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
+import { AIS_BOX, assess, parseMessage, type Vessel } from "./ais";
 
 interface Env {
   TRACKER: DurableObjectNamespace<BridgeTracker>;
   ASSETS: Fetcher;
   BRIDGE_ID: string;
   GOOGLE_TILES_KEY?: string;
+  AISSTREAM_KEY?: string;
 }
 
 type State = "up" | "down" | "unknown";
@@ -17,6 +19,17 @@ const POLL_MS = 15_000;
 // An opening longer than this means a close was missed, so it's dropped instead of skewing stats.
 const MAX_OPENING_S = 3 * 3600;
 const MAX_DAYS = 120;
+// AIS: listen for this long, then rest, to keep the Durable Object well inside the free tier.
+const AIS_LISTEN_MS = 25_000;
+const AIS_EVERY_S = 60;
+
+/** aisstream sends JSON as binary frames, which arrive as a Blob or ArrayBuffer depending on the runtime. */
+async function messageText(data: unknown): Promise<string> {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) return new TextDecoder().decode(data as ArrayBuffer);
+  if (data && typeof (data as Blob).text === "function") return (data as Blob).text();
+  return "";
+}
 
 const iso = (s: number | null) => (s == null ? null : new Date(s * 1000).toISOString().replace(".000Z", "Z"));
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -38,6 +51,10 @@ export class BridgeTracker extends DurableObject<Env> {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS openings (start INTEGER PRIMARY KEY, end INTEGER);
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS vessels (
+        mmsi INTEGER PRIMARY KEY, name TEXT, type INTEGER, length REAL,
+        lat REAL, lon REAL, sog REAL, cog REAL, updated INTEGER
+      );
     `);
     if (!this.meta("tracking_since")) this.setMeta("tracking_since", String(nowS()));
   }
@@ -55,6 +72,7 @@ export class BridgeTracker extends DurableObject<Env> {
   }
 
   async alarm() {
+    this.ctx.waitUntil(this.sampleAis().catch((err) => console.error("ais failed", err)));
     try {
       await this.poll();
     } catch (err) {
@@ -79,6 +97,60 @@ export class BridgeTracker extends DurableObject<Env> {
     this.setMeta("since", since == null ? "" : String(since));
     this.setMeta("checked_at", String(now));
     this.record(state, since, now);
+  }
+
+  private aisBusy = false;
+
+  /** Open the aisstream socket for a short window and record every vessel we hear about. */
+  private async sampleAis() {
+    const key = this.env.AISSTREAM_KEY;
+    const last = Number(this.meta("ais_started") ?? 0);
+    if (!key || this.aisBusy || nowS() - last < AIS_EVERY_S) return;
+    this.aisBusy = true;
+    this.setMeta("ais_started", String(nowS()));
+    try {
+      const res = await fetch("https://stream.aisstream.io/v0/stream", { headers: { Upgrade: "websocket" } });
+      const ws = res.webSocket;
+      if (!ws) throw new Error(`aisstream upgrade failed: ${res.status}`);
+      ws.accept();
+      let count = 0;
+      ws.addEventListener("close", (e) => this.setMeta("ais_last_close", `${e.code} ${e.reason}`.slice(0, 200)));
+      ws.addEventListener("message", async (e) => {
+        const text = await messageText(e.data);
+        const v = parseMessage(text);
+        if (v) { this.upsertVessel(v); count++; }
+        else this.setMeta("ais_last_other", text.slice(0, 300));   // errors from aisstream arrive as plain JSON
+      });
+      ws.send(JSON.stringify({
+        APIKey: key,
+        BoundingBoxes: [AIS_BOX],
+        FilterMessageTypes: ["PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport", "ShipStaticData", "StaticDataReport"],
+      }));
+      await new Promise((r) => setTimeout(r, AIS_LISTEN_MS));
+      ws.close(1000, "done");
+      this.setMeta("ais_checked", String(nowS()));
+      this.setMeta("ais_last_count", String(count));
+      this.sql.exec("DELETE FROM vessels WHERE updated < ?", nowS() - 6 * 3600);
+    } finally {
+      this.aisBusy = false;
+    }
+  }
+
+  private upsertVessel(v: Partial<Vessel> & { mmsi: number }) {
+    this.sql.exec("INSERT OR IGNORE INTO vessels (mmsi, updated) VALUES (?, 0)", v.mmsi);
+    for (const col of ["name", "type", "length", "lat", "lon", "sog", "cog", "updated"] as const) {
+      const value = v[col];
+      if (value !== undefined && value !== null) this.sql.exec(`UPDATE vessels SET ${col} = ? WHERE mmsi = ?`, value, v.mmsi);
+    }
+  }
+
+  private vessels() {
+    const now = nowS();
+    const rows = this.sql.exec<Vessel>("SELECT * FROM vessels WHERE lat IS NOT NULL").toArray();
+    return rows
+      .map((v) => assess(v, now))
+      .filter((a) => a !== null)
+      .sort((a, b) => (a.etaMin ?? 1e9) - (b.etaMin ?? 1e9) || a.distanceM - b.distanceM);
   }
 
   /** Same rules as the app's original local log: one row per opening, end is null while it's up. */
@@ -131,6 +203,18 @@ export class BridgeTracker extends DurableObject<Env> {
         bridgeId: this.env.BRIDGE_ID,
         trackingSince: iso(Number(this.meta("tracking_since"))),
         openings: rows.map((r) => ({ start: iso(r.start), end: iso(r.end) })),
+      });
+    }
+
+    if (url.pathname === "/v1/vessels") {
+      const checked = this.meta("ais_checked");
+      return Response.json({
+        tracking: !!this.env.AISSTREAM_KEY,
+        checkedAt: checked ? iso(Number(checked)) : null,
+        lastSampleMessages: Number(this.meta("ais_last_count") ?? 0),
+        lastNotice: this.meta("ais_last_other") ?? this.meta("ais_last_close") ?? null,
+        vessels: this.vessels(),
+        note: "From AIS. Small boats often don't broadcast, so not every opening shows up here.",
       });
     }
 
@@ -240,7 +324,16 @@ export default {
       const at = url.searchParams.get("at");
       const when = at ? new Date(at) : new Date();
       if (Number.isNaN(when.getTime())) return Response.json({ error: "at must be an ISO 8601 time" }, { status: 400, headers: CORS });
-      return Response.json(forecast(when), { headers: { ...CORS, "Cache-Control": "public, max-age=30" } });
+      const fc: Record<string, unknown> = forecast(when);
+      if (!at) {
+        try {
+          const v = (await (await tracker(env).fetch("https://tracker/v1/vessels")).json()) as { vessels: { approaching: boolean; needsOpening: boolean }[] };
+          fc.boats = v.vessels.filter((b) => b.approaching && b.needsOpening).slice(0, 5);
+        } catch {
+          fc.boats = [];
+        }
+      }
+      return Response.json(fc, { headers: { ...CORS, "Cache-Control": "public, max-age=30" } });
     }
     if (pathname === "/config.json") {
       return Response.json({ googleTilesKey: env.GOOGLE_TILES_KEY ?? null }, { headers: { "Cache-Control": "public, max-age=300" } });
@@ -252,7 +345,7 @@ export default {
         {
           name: "Brickell Bridge API",
           source: "https://github.com/antondkg/brickell-bridge",
-          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast"],
+          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels"],
           note: "Unofficial. Data comes from FL511 and may lag the real world.",
         },
         { headers: CORS },
