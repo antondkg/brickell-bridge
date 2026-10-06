@@ -479,6 +479,14 @@ export default {
       return Response.json({ googleTilesKey: env.GOOGLE_TILES_KEY ?? null }, { headers: { "Cache-Control": "public, max-age=300" } });
     }
     // brickellbridge.fun and www serve the 3D page; /v1/* is the API on every host.
+    if (pathname.endsWith(".shortcut")) {
+      // iOS hands this to the Shortcuts app; it needs a binary type and a filename
+      const res = await env.ASSETS.fetch(request);
+      const out = new Response(res.body, res);
+      out.headers.set("Content-Type", "application/octet-stream");
+      out.headers.set("Content-Disposition", 'attachment; filename="Bridge Status.shortcut"');
+      return out;
+    }
     if (!hostname.startsWith("api.") && !pathname.startsWith("/v1/")) return env.ASSETS.fetch(request);
     if (pathname === "/") {
       return Response.json(
