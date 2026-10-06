@@ -27,6 +27,10 @@ A tiny macOS menu bar app that shows the live status of Miami's Brickell Avenue 
 
 **[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell with the bridge raising and lowering with the real status. By default it streams Google's photorealistic 3D city, with our animated bascule span cut into it. If that's unavailable (no key, or the daily cap is reached), it falls back to a model built entirely from stored open data: OpenStreetMap buildings and Miami-Dade County's 2025 aerial photos. You can drag around, scrub the time of day, or hit **Watch it open**. Add `?t=19.5` to pin a time, or `?map=model` to see the open-data model.
 
+### iPhone shortcut
+
+[Get the Bridge Status shortcut](https://brickellbridge.fun/bridge-status.shortcut) on your iPhone. It reads [`/v1/summary`](https://api.brickellbridge.fun/v1/summary) and shows both bridges as a notification. To run it when you get in the car: Shortcuts, **Automation**, **+**, **Bluetooth**, pick your car, **Is Connected**, **Run Immediately**, then choose **Bridge Status**. The shortcut is built and signed by [`shortcut/build_shortcut.py`](shortcut/build_shortcut.py).
+
 ## Why
 
 If you live or work around Brickell, you know the bridge goes up at the worst possible time. FL511 sends email alerts, but they're easy to miss and they don't tell you how long it's been up. This puts the answer in your menu bar.

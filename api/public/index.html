@@ -32,15 +32,17 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; margin: 0; }
-  html, body { height: 100%; overflow: hidden; background: #0a1020; color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; touch-action: none; }
+  html { background: #0a1020; }
+  body { min-height: 100%; overflow-x: hidden; background: #0a1020; color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
   canvas#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; outline: none; }
 
-  .ui { position: fixed; inset: 0; pointer-events: none; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; padding: max(14px, env(safe-area-inset-top)) var(--pad) max(14px, env(safe-area-inset-bottom)); }
+  .hero { position: relative; height: 100dvh; }
+  .ui { position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; padding: max(14px, env(safe-area-inset-top)) var(--pad) calc(max(14px, env(safe-area-inset-bottom)) + 30px); }
   .ui > * { pointer-events: none; }
   .ui a, .ui button, .ui input { pointer-events: auto; }
-  .shade { position: fixed; inset: auto 0 0 0; height: 60dvh; pointer-events: none;
+  .shade { position: absolute; inset: auto 0 0 0; height: 60dvh; pointer-events: none;
     background: linear-gradient(to top, rgba(6, 10, 22, .88), rgba(6, 10, 22, .5) 40%, rgba(6, 10, 22, 0)); }
-  .shade-top { position: fixed; inset: 0 0 auto 0; height: 110px; pointer-events: none; background: linear-gradient(to bottom, rgba(6,10,22,.5), rgba(6,10,22,0)); }
+  .shade-top { position: absolute; inset: 0 0 auto 0; height: 110px; pointer-events: none; background: linear-gradient(to bottom, rgba(6,10,22,.5), rgba(6,10,22,0)); }
 
   .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   .brand { display: flex; align-items: center; gap: 10px; font: 500 12px var(--mono); color: var(--ink-2); }
@@ -69,9 +71,9 @@
   .forecast b { color: var(--ink); font-weight: 650; }
   .forecast .tag { flex: none; font: 600 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 6px; background: rgba(255,255,255,.1); color: var(--ink); margin-top: 1px; }
   .forecast[hidden] { display: none; }
-  .next { display: flex; align-items: center; gap: 8px; margin-top: 8px; font: 500 13px var(--body); color: var(--ink-2); }
+  .next { display: inline-flex; align-items: center; gap: 9px; margin-top: 10px; padding: 7px 12px; border-radius: 99px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font: 500 14px var(--body); color: var(--ink-2); }
   .next[hidden] { display: none; }
-  .next i { width: 8px; height: 8px; border-radius: 50%; background: var(--wait); flex: none; }
+  .next i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); flex: none; }
   .next.down i { background: var(--down); } .next.up i { background: var(--up); } .next.soon i { background: #ffc24d; }
   .next b { color: var(--ink); font-weight: 650; }
   .next small { font: 500 11px var(--mono); color: var(--ink-3); }
@@ -100,6 +102,64 @@
   .loading div { display: flex; flex-direction: column; align-items: center; gap: 14px; font: 600 12px var(--mono); letter-spacing: .14em; color: var(--ink-2); text-transform: uppercase; }
   .loading i { width: 160px; height: 3px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
   .loading i::after { content: ""; display: block; height: 100%; width: var(--p, 10%); background: var(--down); transition: width .3s; }
+  .scroll-cue { position: absolute; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); pointer-events: auto; color: var(--ink-3); font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; text-decoration: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .scroll-cue svg { width: 18px; height: 18px; animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(3px); } }
+
+  /* stats below the fold */
+  .stats-page { position: relative; z-index: 2; background: #0b1122; border-radius: 22px 22px 0 0; box-shadow: 0 -20px 60px rgba(0,0,0,.4); padding-inline: var(--pad); padding-block: 28px max(32px, env(safe-area-inset-bottom)); }
+  .stats-inner { max-width: 980px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .stats-inner > h2 { grid-column: 1 / -1; margin: 0 0 4px; font: 400 clamp(30px, 5vw, 44px)/1 var(--display); letter-spacing: .01em; }
+  .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 16px; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h3 { margin: 0 0 12px; font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; gap: 10px; }
+  .card h3 span { letter-spacing: 0; text-transform: none; font-family: var(--body); font-weight: 500; }
+  .rows { display: flex; flex-direction: column; }
+  .row { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid rgba(255,255,255,.06); font-size: 14px; }
+  .row:first-child { border-top: 0; padding-top: 0; }
+  .row i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); }
+  .row i.up { background: var(--up); } .row i.down { background: var(--down); } .row i.soon { background: #ffc24d; }
+  .row b { font-weight: 650; }
+  .row small { display: block; color: var(--ink-3); font-size: 12px; }
+  .row .n { font: 600 12px var(--mono); color: var(--ink-2); text-align: right; }
+  .row.hl { background: rgba(124,240,180,.05); margin-inline: -8px; padding-inline: 8px; border-radius: 10px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .tile { background: rgba(255,255,255,.04); border-radius: 12px; padding: 10px; }
+  .tile .v { font: 700 24px/1.1 var(--body); font-variant-numeric: tabular-nums; }
+  .tile .v small { font-size: 12px; color: var(--ink-2); margin-left: 1px; }
+  .tile .k { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
+  .tl { position: relative; height: 30px; border-radius: 8px; background: rgba(124,240,180,.12); overflow: hidden; margin-top: 12px; }
+  .tl .f { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(255,255,255,.05); }
+  .tl .b { position: absolute; top: 0; bottom: 0; background: var(--up); min-width: 3px; border-radius: 2px; }
+  .tl .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+  .ticks { display: flex; justify-content: space-between; font: 500 10px var(--mono); color: var(--ink-3); margin-top: 4px; }
+  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 130px; }
+  .bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; font: 600 11px var(--mono); color: var(--ink-2); }
+  .bar div { width: 100%; max-width: 34px; border-radius: 5px 5px 2px 2px; background: rgba(120,160,255,.55); }
+  .bar.today div { background: repeating-linear-gradient(135deg, #6b9bff 0 3px, rgba(107,155,255,.5) 3px 6px); }
+  .bar span { font-weight: 500; color: var(--ink-3); }
+  .hm { display: grid; grid-template-columns: 30px repeat(24, minmax(0, 1fr)); gap: 2px; font: 500 9.5px var(--mono); color: var(--ink-3); }
+  .hm i { aspect-ratio: 1; border-radius: 2px; }
+  .hist { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; height: 110px; }
+  .hist div { border-radius: 5px 5px 2px 2px; background: rgba(255,93,98,.5); position: relative; }
+  .hist div.med { background: var(--up); }
+  .hist div b { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font: 600 10px var(--mono); color: var(--ink-2); }
+  .hist-x { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; text-align: center; font: 500 10px var(--mono); color: var(--ink-3); margin-top: 4px; }
+  .empty { color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
+  .short { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
+  .short ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); }
+  .short ol b { color: var(--ink); }
+  .get { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--down); color: #062014; font: 700 14px var(--body); text-decoration: none; white-space: nowrap; }
+  .credits { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; text-align: center; margin-top: 8px; }
+  .credits a { color: var(--ink-2); }
+  @media (max-width: 640px) {
+    .stats-inner { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .short { grid-template-columns: minmax(0, 1fr); }
+    .get { justify-self: start; }
+    .hm { grid-template-columns: 26px repeat(24, minmax(0, 1fr)); gap: 1px; }
+  }
+
   .toast { position: fixed; left: 50%; top: max(64px, calc(env(safe-area-inset-top) + 56px)); transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); font: 500 12.5px var(--body); color: var(--ink); opacity: 0; transition: opacity .3s; pointer-events: none; }
   .toast.on { opacity: 1; }
 
@@ -131,6 +191,7 @@
 </head>
 <body>
 <canvas id="scene" aria-label="3D view of the Brickell Avenue Bridge and the Brickell skyline"></canvas>
+<div class="hero">
 <div class="shade-top"></div>
 <div class="shade"></div>
 
@@ -177,11 +238,36 @@
       </div>
     </div>
     <div class="foot">
-      <span class="hint" id="hint">Drag to look around · pinch or scroll to zoom</span>
+      <span class="hint" id="hint">Drag to look around · pinch or ⌘ + scroll to zoom</span>
       <span>Unofficial · status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a> · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · imagery © Miami-Dade County<span id="googleCredit" hidden> · 3D © Google</span> · <a href="/v1/status">API</a></span>
     </div>
   </footer>
 </main>
+<a class="scroll-cue" href="#stats">Stats<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></a>
+</div>
+
+<section class="stats-page" id="stats" aria-label="Bridge stats">
+  <div class="stats-inner">
+    <h2>The river, by the numbers</h2>
+    <div class="card wide"><h3>Miami River bridges <span>from the bay up</span></h3><div class="rows" id="riverRows"><p class="empty">Loading…</p></div></div>
+    <div class="card wide"><h3>Today at Brickell <span id="todayLabel"></span></h3><div class="tiles" id="todayTiles"></div><div class="tl" id="todayTl"></div><div class="ticks"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div></div>
+    <div class="card"><h3>Last 7 days <span id="weekTotal"></span></h3><div class="bars" id="weekBars"></div></div>
+    <div class="card"><h3>How long it stays up <span id="durNote"></span></h3><div id="durBox"></div></div>
+    <div class="card wide"><h3>When it opens <span>openings per hour, Miami time</span></h3><div id="hmBox"></div></div>
+    <div class="card wide short" id="shortcut">
+      <div>
+        <h3>On your iPhone</h3>
+        <a class="get" href="/bridge-status.shortcut">Get the shortcut</a>
+      </div>
+      <ol>
+        <li>Tap <b>Get the shortcut</b> on your iPhone and add it. It shows both bridges as a notification.</li>
+        <li>In Shortcuts, go to <b>Automation</b>, tap <b>+</b>, choose <b>Bluetooth</b>, and pick your car.</li>
+        <li>Choose <b>Is Connected</b>, set it to <b>Run Immediately</b>, and select <b>Bridge Status</b>.</li>
+      </ol>
+    </div>
+    <p class="credits">Unofficial. Status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a>, boats from AIS, South Miami Avenue estimated. <a href="https://github.com/antondkg/brickell-bridge" target="_blank" rel="noopener">Open source</a> · <a href="/v1/summary">API</a></p>
+  </div>
+</section>
 <div class="toast" id="toast"></div>
 <div class="loading" id="loading"><div><span id="loadText">Loading Brickell</span><i id="loadBar"></i></div></div>
 
@@ -232,6 +318,10 @@ const camera = new THREE.PerspectiveCamera(MOBILE ? 52 : 40, 1, 1, 12000);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 18, 0);
 controls.enableDamping = true;
+// One finger swipes up and down scroll the page (sideways still rotates); pinch zooms.
+canvas.style.touchAction = "pan-y";
+// The wheel scrolls the page; ⌘/ctrl + wheel (and trackpad pinch, which sends ctrl) zooms the scene.
+canvas.addEventListener("wheel", (e) => { controls.enableZoom = e.ctrlKey || e.metaKey; }, { capture: true, passive: true });
 controls.dampingFactor = 0.06;
 controls.enablePan = false;
 controls.minDistance = 60;
@@ -1096,7 +1186,9 @@ async function loadStatus() {
 }
 async function loadOpenings() {
   try {
-    const j = await (await fetch(`${API}/v1/openings?days=7`, { cache: "no-store" })).json();
+    const j = await (await fetch(`${API}/v1/openings?days=35`, { cache: "no-store" })).json();
+    live.openings = j.openings.map((o) => ({ start: new Date(o.start), end: o.end ? new Date(o.end) : null }));
+    live.trackingSince = new Date(j.trackingSince);
     const today = miamiDay(new Date());
     const todays = j.openings.filter((o) => miamiDay(new Date(o.start)) === today);
     live.todayCount = todays.length;
@@ -1105,11 +1197,92 @@ async function loadOpenings() {
     live.median = durs.length >= 3 ? durs[Math.floor(durs.length / 2)] : null;
   } catch {}
   render();
+  renderStats();
+}
+async function loadRiver() {
+  try { live.river = await (await fetch(`${API}/v1/river`, { cache: "no-store" })).json(); } catch {}
+  renderStats();
 }
 async function loadForecast() {
   try { live.forecast = await (await fetch(`${API}/v1/forecast`, { cache: "no-store" })).json(); } catch {}
   render();
 }
+// ---------------------------------------------------------------- stats below the fold
+const miamiParts = (d) => Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(d).map((p) => [p.type, p.value]));
+const minuteOfDay = (d) => { const p = miamiParts(d); return +p.hour * 60 + +p.minute; };
+const mins = (o) => ((o.end ?? new Date()) - o.start) / 60000;
+function renderStats() {
+  const rv = live.river;
+  if (rv) {
+    $("riverRows").innerHTML = rv.bridges.map((b) => {
+      let cls = b.state === "up" ? "up" : b.state === "down" ? "down" : "";
+      let text = b.state === "up" ? "Up" : b.state === "down" ? "Down" : "Unknown";
+      if (b.source === "estimated") {
+        cls = { "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[b.state] ?? "";
+        text = { "likely-up": "Likely up", "opening-soon": "May open next", "likely-down": "Likely down" }[b.state] ?? "Unknown";
+      }
+      const since = b.since ? ` since ${fmtTime(new Date(b.since))}` : "";
+      const detail = b.source === "estimated" ? `Estimated · ${b.reason}` : `${text}${since}`;
+      const count = b.source === "estimated" ? b.inferredToday : b.openingsToday;
+      const hl = b.key === "brickell" || b.key === "south-miami" ? " hl" : "";
+      return `<div class="row${hl}"><i class="${cls}"></i><div><b>${b.name}</b> · ${text}<small>${detail}</small></div><span class="n">${count ?? 0} today</span></div>`;
+    }).join("");
+  }
+  const ops = live.openings;
+  if (!ops) return;
+  const now = new Date(), nowMin = minuteOfDay(now), today = miamiDay(now);
+  const todays = ops.filter((o) => miamiDay(o.start) === today);
+  const upMin = todays.reduce((a, o) => a + mins(o), 0);
+  const longest = todays.reduce((m, o) => Math.max(m, mins(o)), 0);
+  $("todayLabel").textContent = `${todays.length} openings so far`;
+  $("todayTiles").innerHTML = [
+    [todays.length, "", "Openings"], [Math.round(upMin), "m", "Minutes up"], [Math.round(longest), "m", "Longest"],
+    [(upMin / Math.max(1, nowMin) * 100).toFixed(1), "%", "Of day up"],
+  ].map(([v, u, k]) => `<div class="tile"><div class="v">${v}<small>${u}</small></div><div class="k">${k}</div></div>`).join("");
+  $("todayTl").innerHTML = `<div class="f" style="left:${nowMin / 14.4}%"></div>` + todays.map((o) => {
+    const s0 = minuteOfDay(o.start);
+    return `<div class="b" style="left:${s0 / 14.4}%;width:${mins(o) / 14.4}%" title="Up ${fmtTime(o.start)}${o.end ? " to " + fmtTime(o.end) : ""}"></div>`;
+  }).join("") + `<div class="now" style="left:${nowMin / 14.4}%"></div>`;
+
+  // last 7 Miami days
+  const days = [...Array(7).keys()].map((i) => miamiDay(new Date(Date.now() - (6 - i) * 86400000)));
+  const counts = days.map((d) => ops.filter((o) => miamiDay(o.start) === d).length);
+  const maxC = Math.max(1, ...counts);
+  $("weekTotal").textContent = `${counts.reduce((a, b) => a + b, 0)} total`;
+  $("weekBars").innerHTML = days.map((d, i) => {
+    const label = i === 6 ? "Today" : new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+    return `<div class="bar${i === 6 ? " today" : ""}" title="${counts[i]} openings">${counts[i]}<div style="height:${Math.max(3, (counts[i] / maxC) * 92)}px"></div><span>${label}</span></div>`;
+  }).join("");
+
+  // lengths
+  const durs = ops.filter((o) => o.end).map(mins).sort((a, b) => a - b);
+  if (durs.length >= 5) {
+    const buckets = [0, 0, 0, 0, 0, 0];
+    durs.forEach((d) => buckets[Math.min(5, Math.floor(d / 3))]++);
+    const med = durs[Math.floor(durs.length / 2)], mb = Math.min(5, Math.floor(med / 3)), mx = Math.max(...buckets);
+    $("durNote").textContent = `median ${Math.round(med)} min`;
+    $("durBox").innerHTML = `<div class="hist" style="padding-top:16px">${buckets.map((b, i) => `<div class="${i === mb ? "med" : ""}" style="height:${Math.max(3, (b / mx) * 90)}px"><b>${Math.round((b / durs.length) * 100)}%</b></div>`).join("")}</div>
+      <div class="hist-x"><span>0-3</span><span>3-6</span><span>6-9</span><span>9-12</span><span>12-15</span><span>15+</span></div>`;
+  } else {
+    $("durBox").innerHTML = `<p class="empty">Needs a few more openings. ${durs.length} logged so far.</p>`;
+  }
+
+  // hour by weekday heatmap
+  const trackedDays = (Date.now() - live.trackingSince) / 86400000;
+  if (trackedDays >= 3) {
+    const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const grid = Object.fromEntries(order.map((d) => [d, Array(24).fill(0)]));
+    for (const o of ops) { const p = miamiParts(o.start); grid[p.weekday][+p.hour]++; }
+    const weeks = Math.max(1, trackedDays / 7), mxh = Math.max(0.01, ...order.flatMap((d) => grid[d])) / weeks;
+    $("hmBox").innerHTML = `<div class="hm">${order.map((d) => `<span>${d}</span>` + grid[d].map((v, h) => {
+      const t = v / weeks / mxh;
+      return `<i title="${d} ${h}:00 · ${(v / weeks).toFixed(1)} per week" style="background:${t > 0 ? `rgba(107,155,255,${0.15 + 0.85 * t})` : "rgba(255,255,255,.05)"}"></i>`;
+    }).join("")).join("")}</div>`;
+  } else {
+    $("hmBox").innerHTML = `<p class="empty">Patterns show up after a few days of history. Tracking started ${live.trackingSince.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ })}.</p>`;
+  }
+}
+
 function render() {
   const a = $("answer"), sub = $("sub");
   a.classList.remove("up", "down");
@@ -1147,7 +1320,7 @@ function render() {
   if (sm) {
     const label = { "likely-up": "likely up", "opening-soon": "may open next", "likely-down": "likely down" }[sm.state];
     $("next").className = `next ${{ "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[sm.state]}`;
-    $("next").innerHTML = `<i></i><span>South Miami Ave bridge: <b>${label}</b> <small>estimated</small></span>`;
+    $("next").innerHTML = `<i></i><span>South Miami Ave: <b>${label}</b> <small>est.</small></span>`;
     $("next").title = sm.reason;
   }
   // An upstream bridge just opened: a boat is probably on its way down to Brickell.
@@ -1248,7 +1421,8 @@ function frame() {
 }
 
 (async () => {
-  loadStatus(); loadOpenings(); loadForecast();
+  loadStatus(); loadOpenings(); loadForecast(); loadRiver();
+  setInterval(loadRiver, 60000);
   const google = setupGoogle();
   setInterval(loadStatus, 15000);
   setInterval(loadOpenings, 60000);

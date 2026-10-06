@@ -402,6 +402,35 @@ function forecast(now = new Date()) {
   };
 }
 
+// ---------------------------------------------------------------- short status for notifications (iOS Shortcuts)
+const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+const minsAgo = (iso: string | null) => (iso ? Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000)) : null);
+const ago = (m: number | null) => (m == null ? "" : m < 60 ? ` (${m} min)` : ` (${Math.floor(m / 60)}h ${m % 60}m)`);
+
+interface SummaryInput {
+  status: { state: string; since: string | null };
+  river: { southMiami: { state: string }; upstream: { from: string; brickellExpected: string } | null };
+  boats: { name: string | null; kind: string; etaMin: number | null }[];
+  forecast: ReturnType<typeof forecast>;
+}
+/** One short headline plus a few lines, plain enough for a phone notification. */
+function summarize({ status, river, boats, forecast: f }: SummaryInput) {
+  const b = status.state;
+  const since = status.since ? ` since ${timeFmt.format(new Date(status.since))}${ago(minsAgo(status.since))}` : "";
+  const sm = river.southMiami.state;
+  const smShort = sm === "likely-up" ? "likely UP" : sm === "opening-soon" ? "may open soon" : "likely down";
+  const title = b === "up" ? `Brickell is UP · S Miami ${smShort}` : b === "down" ? `Brickell is down · S Miami ${smShort}` : "Brickell bridge status unknown";
+  const lines: string[] = [];
+  if (b === "up") lines.push(`Brickell Ave bridge: UP, closed to traffic${since}.`);
+  else if (b === "down") lines.push(`Brickell Ave bridge: down, open to traffic${since}.`);
+  lines.push(`South Miami Ave bridge: ${smShort} (estimated).`);
+  const boat = boats[0];
+  if (boat?.etaMin != null) lines.push(`Heads up: ${boat.name ? `${boat.kind} ${boat.name}` : `a ${boat.kind}`} is heading for Brickell, about ${boat.etaMin} min out.`);
+  else if (river.upstream && b !== "up") lines.push(`Heads up: ${river.upstream.from} just opened. Brickell may open around ${timeFmt.format(new Date(river.upstream.brickellExpected))}.`);
+  else if (f.mode === "closed-to-boats" && f.modeUntil) lines.push(`No boat openings until ${timeFmt.format(new Date(f.modeUntil))} (${f.reason}).`);
+  return { title, body: lines.join("\n"), text: `${title}\n${lines.join("\n")}` };
+}
+
 const tracker = (env: Env) => env.TRACKER.get(env.TRACKER.idFromName(`bridge-${env.BRIDGE_ID}`));
 
 const CORS = {
@@ -434,6 +463,18 @@ export default {
       }
       return Response.json(fc, { headers: { ...CORS, "Cache-Control": "public, max-age=30" } });
     }
+    if (pathname === "/v1/summary") {
+      const t = tracker(env);
+      const [status, river, vessels] = await Promise.all([
+        t.fetch("https://tracker/v1/status").then((r) => r.json()),
+        t.fetch("https://tracker/v1/river").then((r) => r.json()),
+        t.fetch("https://tracker/v1/vessels").then((r) => r.json()),
+      ]) as [SummaryInput["status"], SummaryInput["river"], { vessels: (SummaryInput["boats"][number] & { approaching: boolean; needsOpening: boolean })[] }];
+      const sum = summarize({ status, river, boats: vessels.vessels.filter((v) => v.approaching && v.needsOpening), forecast: forecast() });
+      const headers = { ...CORS, "Cache-Control": "no-store" };
+      if (url.searchParams.get("format") === "json") return Response.json(sum, { headers });
+      return new Response(sum.text, { headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
+    }
     if (pathname === "/config.json") {
       return Response.json({ googleTilesKey: env.GOOGLE_TILES_KEY ?? null }, { headers: { "Cache-Control": "public, max-age=300" } });
     }
@@ -444,7 +485,7 @@ export default {
         {
           name: "Brickell Bridge API",
           source: "https://github.com/antondkg/brickell-bridge",
-          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels", "/v1/river"],
+          endpoints: ["/v1/summary", "/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels", "/v1/river"],
           note: "Unofficial. Data comes from FL511 and may lag the real world.",
         },
         { headers: CORS },
