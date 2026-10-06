@@ -516,6 +516,7 @@ async function buildCity() {
     const m = new THREE.Mesh(new THREE.SphereGeometry(1.4, 10, 8), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1a1a, emissiveIntensity: 2 }));
     m.position.copy(p);
     world.add(m);
+    cityMeshes.push(m);
     beacons.push({ m: m.material, phase: rand() * 6 });
   }
   setLoad(0.9, "Lowering the bridge");
@@ -885,7 +886,11 @@ async function enablePhoto(on) {
         console.warn("tiles error", e);
         if (!tiles.root) { toast("Google 3D isn't available right now. Showing the map model."); enablePhoto(false); $("photo").disabled = true; }
       });
-      scene.add(tiles.group);
+      // the plugin points +z north; this scene uses -z for north
+      const holder = new THREE.Group();
+      holder.rotation.y = Math.PI;
+      holder.add(tiles.group);
+      scene.add(holder);
     } catch (err) {
       console.error(err);
       toast("Couldn't load Google 3D.");
