@@ -194,6 +194,9 @@ const TZ = "America/New_York";
 const LAT0 = 25.769925, LON0 = -80.19003;   // center of the bascule span; the scene's origin
 const ROAD_Y = 0.12;                         // street level is y = 0
 const WATER_Y = -1.4;
+// Heights the scene is drawn at. The map model uses street level = 0; in photoreal mode these are
+// calibrated against Google's mesh, which sits a few meters higher (see calibratePhoto).
+const level = { water: WATER_Y, deck: 0, road: (s) => 0 };
 const HINGE = 20.5;                          // each leaf is 20.5 m, hinges 41 m apart (OSM)
 const DECK_W = 28;
 const OPEN_ANGLE = THREE.MathUtils.degToRad(74);
@@ -538,30 +541,47 @@ function box(w, h, d, material, x, y, z, cast = true) {
 }
 const bridge = new THREE.Group();
 scene.add(bridge);
+// Static parts that Google's photoreal scan already has (piers, tender houses, statue): only shown in the map model.
+const modelOnly = new THREE.Group();
+bridge.add(modelOnly);
 for (const side of [-1, 1]) {
-  bridge.add(box(DECK_W + 10, 7, 14, mat.pier, 0, -3.45, side * (HINGE + 7)));             // bascule pier, hiding the counterweight pit
-  bridge.add(box(20, 0.12, 14, mat.asphalt, 0, ROAD_Y, side * (HINGE + 7), false));
+  modelOnly.add(box(DECK_W + 10, 7, 14, mat.pier, 0, -3.45, side * (HINGE + 7)));             // bascule pier, hiding the counterweight pit
+  modelOnly.add(box(20, 0.12, 14, mat.asphalt, 0, ROAD_Y, side * (HINGE + 7), false));
 }
+const leafMat = {
+  deck: new THREE.MeshStandardMaterial({ color: 0x55585e, roughness: 0.9 }),
+  walk: new THREE.MeshStandardMaterial({ color: 0xbdb8ad, roughness: 0.9 }),
+  fascia: new THREE.MeshStandardMaterial({ color: 0xe2ddd2, roughness: 0.8 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x5f7f82, roughness: 0.55, metalness: 0.35 }),
+  under: new THREE.MeshStandardMaterial({ color: 0x40585b, roughness: 0.7, metalness: 0.3 }),
+};
 function makeLeaf(sign) {
   const pivot = new THREE.Group();
   pivot.position.set(0, ROAD_Y, sign * HINGE);
   pivot.rotation.y = sign > 0 ? Math.PI : 0;   // both leaves are built along +z toward the river center
   const hinge = new THREE.Group();
   pivot.add(hinge);
-  const L = HINGE;
-  hinge.add(box(20, 0.9, L, mat.asphalt, 0, -0.45, L / 2));
-  for (const x of [-12, 12]) hinge.add(box(4, 1.1, L, mat.concrete, x, -0.35, L / 2));
-  for (const x of [-8, 8, -3, 3]) hinge.add(box(1, 2.2, L, mat.steel, x, -2, L / 2));
-  hinge.add(box(DECK_W, 4.5, 6, mat.pier, 0, -3.4, -3));
-  for (const x of [-13.9, 13.9]) for (const y of [1.15, 0.55]) hinge.add(box(0.22, 0.22, L, mat.rail, x, y, L / 2, false));
-  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 1.2, 0.16), mat.rail, 2 * 15);
+  const L = HINGE, W = DECK_W / 2;
+  // deck surface: two lanes each way and sidewalks
+  hinge.add(box(20, 0.35, L, leafMat.deck, 0, -0.18, L / 2));
+  for (const x of [-12.2, 12.2]) hinge.add(box(3.6, 0.55, L, leafMat.walk, x, -0.1, L / 2));
+  for (const x of [-0.18, 0.18]) hinge.add(box(0.14, 0.03, L, mat.yellow, x, 0.01, L / 2, false));
+  for (const x of [-5, 5]) for (let i = 0; i < 3; i++) hinge.add(box(0.2, 0.03, 3, mat.white, x, 0.01, 2.5 + i * 7, false));
+  // the leaf's body: concrete fascia on both sides, steel girders and floor beams underneath (what boats see when it's up)
+  for (const x of [-W + 0.3, W - 0.3]) hinge.add(box(0.6, 2.8, L, leafMat.fascia, x, -1.3, L / 2));
+  for (const x of [-9, -3, 3, 9]) hinge.add(box(0.9, 2.4, L, leafMat.steel, x, -1.5, L / 2));
+  for (let z = 1.5; z < L; z += 3) hinge.add(box(DECK_W - 1.2, 0.45, 0.35, leafMat.steel, 0, -2.5, z, false));
+  hinge.add(box(DECK_W - 1.2, 0.2, L, leafMat.under, 0, -2.75, L / 2));
+  hinge.add(box(DECK_W - 1, 2.4, 0.5, leafMat.fascia, 0, -1.4, L - 0.25));                 // nose plate where the leaves meet
+  hinge.add(box(DECK_W - 2, 4.2, 6, mat.pier, 0, -3.3, -3.2));                               // counterweight, swings into the pit
+  // railings
+  for (const x of [-W + 0.3, W - 0.3]) hinge.add(box(0.16, 0.16, L, mat.rail, x, 1.15, L / 2, false));
+  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 1.15, 0.12), mat.rail, 2 * 24);
   const m4 = new THREE.Matrix4();
   let k = 0;
-  for (const x of [-13.9, 13.9]) for (let i = 0; i < 15; i++) { m4.makeTranslation(x, 0.6, i * (L / 14)); posts.setMatrixAt(k++, m4); }
+  for (const x of [-W + 0.3, W - 0.3]) for (let i = 0; i < 24; i++) { m4.makeTranslation(x, 0.58, i * (L / 23)); posts.setMatrixAt(k++, m4); }
   hinge.add(posts);
-  for (const x of [-0.18, 0.18]) hinge.add(box(0.14, 0.04, L, mat.yellow, x, 0.02, L / 2, false));
-  for (const x of [-5, 5]) for (let i = 0; i < 3; i++) hinge.add(box(0.22, 0.04, 3, mat.white, x, 0.02, 2.5 + i * 7, false));
-  for (const x of [-13, 13]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.4, 12, 8), mat.redLamp); l.position.set(x, 0.3, L - 0.4); hinge.add(l); }
+  for (const x of [-W + 0.3, W - 0.3]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 8), mat.redLamp); l.position.set(x, 1.4, L - 0.3); hinge.add(l); }
   bridge.add(pivot);
   return hinge;
 }
@@ -576,7 +596,7 @@ for (const [x, z] of [[-16.5, HINGE + 8], [16.5, -(HINGE + 8)]]) {
   const glass = new THREE.MeshStandardMaterial({ color: 0x1f3550, emissive: 0xffd08a, emissiveIntensity: 0, roughness: 0.2, metalness: 0.3 });
   g.add(box(6.1, 1.6, 6, glass, 0, 4, 0, false));
   g.position.set(x, ROAD_Y, z);
-  bridge.add(g);
+  modelOnly.add(g);
   tenderGlass.push(glass);
 }
 {
@@ -595,7 +615,7 @@ for (const [x, z] of [[-16.5, HINGE + 8], [16.5, -(HINGE + 8)]]) {
   fig(2.2, -0.5, 0, 1); fig(1.9, 0.55, 0.3, 0.9); fig(1, 0.1, -0.6, 0.7);
   const spear = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 5, 6), bronze); spear.position.set(-1.1, 21.3, 0); spear.rotation.z = 0.12; g.add(spear);
   g.position.set(17, ROAD_Y, HINGE + 3.5);
-  bridge.add(g);
+  modelOnly.add(g);
 }
 
 // gates and traffic signals on both approaches
@@ -705,10 +725,11 @@ function updateCars(dt, stopActive) {
     const px = x - dz * c.lane.off, pz = z + dx * c.lane.off;
     _q.setFromAxisAngle(_up, Math.atan2(fx, fz));
     const sc = c.p > 0 ? _one : _zero;
-    _m4.compose(_v3.set(px, ROAD_Y + 0.65, pz), _q, sc); carBody.setMatrixAt(c.i, _m4);
-    _m4.compose(_v3.set(px - fx * 0.3, ROAD_Y + 1.55, pz - fz * 0.3), _q, sc); carCabin.setMatrixAt(c.i, _m4);
-    _m4.compose(_v3.set(px + fx * 2.27, ROAD_Y + 0.72, pz + fz * 2.27), _q, sc); heads.setMatrixAt(c.i, _m4);
-    _m4.compose(_v3.set(px - fx * 2.27, ROAD_Y + 0.78, pz - fz * 2.27), _q, sc); tails.setMatrixAt(c.i, _m4);
+    const y = ROAD_Y + level.road(routeS(c));
+    _m4.compose(_v3.set(px, y + 0.65, pz), _q, sc); carBody.setMatrixAt(c.i, _m4);
+    _m4.compose(_v3.set(px - fx * 0.3, y + 1.55, pz - fz * 0.3), _q, sc); carCabin.setMatrixAt(c.i, _m4);
+    _m4.compose(_v3.set(px + fx * 2.27, y + 0.72, pz + fz * 2.27), _q, sc); heads.setMatrixAt(c.i, _m4);
+    _m4.compose(_v3.set(px - fx * 2.27, y + 0.78, pz - fz * 2.27), _q, sc); tails.setMatrixAt(c.i, _m4);
   }
   for (const im of [carBody, carCabin, heads, tails]) im.instanceMatrix.needsUpdate = true;
 }
@@ -732,7 +753,7 @@ scene.add(wake);
 function emitWake(x, z, fx, fz, speed) {
   for (const side of [-1, 1]) {
     const i = (wakeHead = (wakeHead + 1) % WAKE_N);
-    wakePos.set([x + randRange(-0.5, 0.5), WATER_Y + 0.3, z + randRange(-0.5, 0.5)], i * 3);
+    wakePos.set([x + randRange(-0.5, 0.5), level.water + 0.3, z + randRange(-0.5, 0.5)], i * 3);
     wakeLife[i] = 1;
     wakeVel[i * 2] = -fx * speed * 0.05 - fz * side * randRange(0.7, 1.6);
     wakeVel[i * 2 + 1] = -fz * speed * 0.05 + fx * side * randRange(0.7, 1.6);
@@ -815,7 +836,7 @@ function updateBoats(dt, t, openAmount) {
     const [x, z, dx, dz] = riv.at(b.s);
     const fx = dx * b.dir, fz = dz * b.dir;
     const px = x - dz * b.off, pz = z + dx * b.off;
-    b.mesh.position.set(px, WATER_Y + waveJS(px, pz, t), pz);
+    b.mesh.position.set(px, level.water + waveJS(px, pz, t), pz);
     b.mesh.rotation.set(0, Math.atan2(fx, fz), (waveJS(px + 3, pz, t) - waveJS(px - 3, pz, t)) * 0.1);
     const back = b.kind === "speed" ? 4 : 8;
     if (b.v > 1) emitWake(px - fx * back, pz - fz * back, fx, fz, b.v);
@@ -853,15 +874,55 @@ function plantPalms() {
 
 // ---------------------------------------------------------------- Google photorealistic layer (optional)
 let tiles = null, photoOn = false, googleKey = null;
-const photoU = { uNight: night };
+const photoU = { uNight: night, uCutY: { value: 0 } };
+let calibrated = false, calibrations = 0;
+const _rc = new THREE.Raycaster();
+function groundAt(x, z) {
+  _rc.set(new THREE.Vector3(x, 900, z), new THREE.Vector3(0, -1, 0));
+  const hit = _rc.intersectObject(tiles.group, true)[0];
+  return hit ? hit.point.y : null;
+}
+// Measure Google's mesh once enough tiles are in: deck height at the bridge, river surface, and the road profile.
+// Early tiles are coarse, so this re-runs for the first 15 seconds as sharper ones arrive.
+function calibratePhoto() {
+  if (calibrations >= 15 || !tiles || !photoOn) return;
+  const deck = groundAt(0, HINGE + 2), deckN = groundAt(0, -(HINGE + 2));
+  if (deck == null || deckN == null) return;
+  calibrations++;
+  level.deck = (deck + deckN) / 2 - ROAD_Y;
+  level.water = level.deck - 10.2;   // Google's river surface sits about 10 m below the deck; its water mesh is too noisy to measure
+  photoU.uCutY.value = level.deck;
+  if (road) {
+    const samples = [];
+    for (let s = 0; s <= road.len; s += 15) {
+      const [x, z] = road.at(s);
+      samples.push(Math.abs(s - road.origin) < HINGE + 2 ? level.deck : groundAt(x, z) ?? level.deck);
+    }
+    level.road = (s) => { const i = Math.max(0, Math.min(samples.length - 1.001, s / 15)); const k = Math.floor(i); return samples[k] + (samples[k + 1] - samples[k]) * (i - k); };
+  }
+  applyLevels();
+  calibrated = true;
+}
+function applyLevels() {
+  bridge.position.y = level.deck;
+  water.position.y = level.water;
+  water.visible = !photoOn;   // Google's scan has the real river surface
+}
 // Photoreal is the default; the stored OpenStreetMap + aerial model is the fallback (no key, daily cap reached, or errors).
 async function setupGoogle() {
   try { googleKey = (await (await fetch("/config.json")).json()).googleTilesKey; } catch {}
   $("photo").disabled = !googleKey;
 }
 const wantPhoto = () => googleKey && new URLSearchParams(location.search).get("map") !== "model";
+if (location.hostname === "localhost") window.__bb = { THREE, get tiles() { return tiles; }, scene, camera };   // dev inspection only
+const modelLevel = { ...level };
+let photoLevel = null;
 function applyMode() {
   for (const m of cityMeshes) m.visible = !photoOn;
+  modelOnly.visible = !photoOn;
+  if (!photoOn && calibrated) { photoLevel = { ...level }; Object.assign(level, modelLevel); }
+  if (photoOn && photoLevel) Object.assign(level, photoLevel);
+  applyLevels();
 }
 async function enablePhoto(on) {
   photoOn = on;
@@ -879,7 +940,6 @@ async function enablePhoto(on) {
       tiles.registerPlugin(new plugins.GLTFExtensionsPlugin({ dracoLoader: draco }));
       tiles.registerPlugin(new plugins.TileCompressionPlugin());
       tiles.registerPlugin(new plugins.UnloadTilesPlugin());
-      tiles.registerPlugin(new plugins.TilesFadePlugin());
       // street level here sits about 25 m below the WGS84 ellipsoid (geoid -27 m, ground +2 m)
       tiles.registerPlugin(new plugins.ReorientationPlugin({ lat: LAT0 * THREE.MathUtils.DEG2RAD, lon: LON0 * THREE.MathUtils.DEG2RAD, height: -25, recenter: true }));
       tiles.errorTarget = MOBILE ? 20 : 10;
@@ -908,15 +968,16 @@ async function enablePhoto(on) {
 function patchPhoto(m) {
   if (m.userData.patched) return;
   m.userData.patched = true;
+  m.customProgramCacheKey = () => "brickell-photo";
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, photoU);
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vWP;")
       .replace("#include <fog_vertex>", "#include <fog_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.)).xyz;");
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vWP; uniform float uNight;")
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWP; uniform float uNight, uCutY;")
       .replace("void main() {", `void main() {
-        if (abs(vWP.x) < 15.5 && abs(vWP.z) < ${HINGE.toFixed(1)} && vWP.y > -6. && vWP.y < 8.) discard;`)
+        if (abs(vWP.x) < 15.5 && abs(vWP.z) < ${HINGE.toFixed(1)} && vWP.y > uCutY - 9. && vWP.y < uCutY + 4.) discard;`)
       .replace("#include <dithering_fragment>", "#include <dithering_fragment>\ngl_FragColor.rgb *= mix(1., .16, uNight);");
   };
   m.needsUpdate = true;
@@ -1154,9 +1215,15 @@ function frame() {
   stars.position.copy(camera.position);
   driftCamera(dt, t);
   controls.update();
-  if (tiles && photoOn) { camera.updateMatrixWorld(); tiles.update(); }
+  if (tiles && photoOn) {
+    camera.updateMatrixWorld();
+    tiles.update();
+    if (Math.floor(t) !== Math.floor(t - dt)) calibratePhoto();   // about once a second while tiles refine
+  }
   composer.render();
-  requestAnimationFrame(frame);
+  // Local development: keep rendering in hidden tabs (browsers pause requestAnimationFrame there).
+  if (document.hidden && location.hostname === "localhost") setTimeout(frame, 33);
+  else requestAnimationFrame(frame);
 }
 
 (async () => {
