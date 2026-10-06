@@ -122,7 +122,7 @@ Everything comes from [FL511](https://fl511.com), Florida's official traveler in
 | Bridge status | `GET fl511.com/List/GetData/Bridge`, the same public list that powers FL511's drawbridge page. Brickell Avenue Bridge is item `253`. |
 | Live video | `GET fl511.com/Camera/GetVideoUrl?imageId=5359` returns a token request, which `divas.cloud/VDS-API/SecureTokenUri/GetSecureTokenUriBySourceId` turns into a short-lived `?token=` for the HLS stream. Stream requests need a `Referer: https://fl511.com/` header. |
 | Snapshot fallback | `GET fl511.com/map/Cctv/5359`, shown while the stream warms up if FL511 has a real snapshot. Its "No live camera feed" placeholder is ignored. |
-| Opening history | `GET brickell-bridge.apaulogonc.workers.dev/v1/openings?days=35`, from the stats API. |
+| Opening history | `GET api.brickellbridge.fun/v1/openings?days=35`, from the stats API. |
 
 A few notes:
 
@@ -141,8 +141,8 @@ FL511 only reports the current status, so history needs something that's always 
 
 | Endpoint | Returns |
 | --- | --- |
-| [`/v1/status`](https://brickell-bridge.apaulogonc.workers.dev/v1/status) | Current state, when it last changed, and when the server last checked. |
-| [`/v1/openings?days=35`](https://brickell-bridge.apaulogonc.workers.dev/v1/openings?days=35) | Every opening in the window (`start`, `end`, ISO 8601, `end` is null while up), plus `trackingSince`. Up to 120 days. |
+| [`/v1/status`](https://api.brickellbridge.fun/v1/status) | Current state, when it last changed, and when the server last checked. |
+| [`/v1/openings?days=35`](https://api.brickellbridge.fun/v1/openings?days=35) | Every opening in the window (`start`, `end`, ISO 8601, `end` is null while up), plus `trackingSince`. Up to 120 days. |
 
 The app does all the math itself from the raw openings, so the API stays tiny. It's open to anyone, with CORS enabled.
 
@@ -154,7 +154,7 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-Then point the app at it with `BB_API=https://your-worker.workers.dev`, or change `StatsAPI.base` in [`main.swift`](main.swift). Set `BRIDGE_ID` in [`api/wrangler.jsonc`](api/wrangler.jsonc) to track a different bridge.
+First swap the `routes` entry in [`api/wrangler.jsonc`](api/wrangler.jsonc) for your own domain, or replace it with `"workers_dev": true` to use a free `workers.dev` address. Then point the app at it with `BB_API=https://your-api.example.com`, or change `StatsAPI.base` in [`main.swift`](main.swift). Set `BRIDGE_ID` in [`api/wrangler.jsonc`](api/wrangler.jsonc) to track a different bridge.
 
 To work on the stats UI without waiting for history, launch with sample data:
 

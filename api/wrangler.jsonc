@@ -4,6 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "vars": { "BRIDGE_ID": "253" },
+  "routes": [{ "pattern": "api.brickellbridge.fun", "custom_domain": true }],
+  "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "TRACKER", "class_name": "BridgeTracker" }]
   },

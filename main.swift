@@ -31,7 +31,7 @@ enum FL511 {
 
 /// Shared opening history served by the Worker in `api/`. Set BB_API to point at another deployment.
 enum StatsAPI {
-    static let base = URL(string: ProcessInfo.processInfo.environment["BB_API"] ?? "https://brickell-bridge.apaulogonc.workers.dev")!
+    static let base = URL(string: ProcessInfo.processInfo.environment["BB_API"] ?? "https://api.brickellbridge.fun")!
     static var openingsURL: URL { base.appending(path: "v1/openings").appending(queryItems: [URLQueryItem(name: "days", value: "35")]) }
 }
 
