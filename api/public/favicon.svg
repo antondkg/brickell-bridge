@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="0.62" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#0B2A6F"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0EA5E9"/>
+      <stop offset="1" stop-color="#075985"/>
+    </linearGradient>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#sky)"/>
+    <!-- skyline -->
+    <g fill="#ffffff" opacity="0.13">
+      <rect x="150" y="390" width="70" height="250"/>
+      <rect x="230" y="320" width="56" height="320"/>
+      <rect x="296" y="430" width="60" height="210"/>
+      <rect x="668" y="410" width="60" height="230"/>
+      <rect x="738" y="300" width="70" height="340"/>
+      <rect x="818" y="370" width="58" height="270"/>
+    </g>
+    <!-- water -->
+    <rect x="100" y="700" width="824" height="230" fill="url(#water)"/>
+    <path d="M100 735 q 34 -22 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="14" stroke-linecap="round"/>
+    <path d="M134 810 q 34 -18 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0 t 68 0" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="12" stroke-linecap="round"/>
+  </g>
+  <!-- piers -->
+  <g fill="#ffffff">
+    <rect x="196" y="600" width="170" height="120" rx="14"/>
+    <rect x="658" y="600" width="170" height="120" rx="14"/>
+    <rect x="228" y="500" width="54" height="110" rx="10"/>
+    <rect x="742" y="500" width="54" height="110" rx="10"/>
+  </g>
+  <!-- raised bascule leaves, pivoting at the inner pier tops -->
+  <g stroke="#ffffff" stroke-width="64" stroke-linecap="round">
+    <line x1="340" y1="626" x2="455" y2="440"/>
+    <line x1="684" y1="626" x2="569" y2="440"/>
+  </g>
+  <!-- status light -->
+  <circle cx="512" cy="300" r="46" fill="#F87171"/>
+  <circle cx="512" cy="300" r="46" fill="none" stroke="#ffffff" stroke-opacity="0.9" stroke-width="12"/>
+</svg>

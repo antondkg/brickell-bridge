@@ -4,7 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "vars": { "BRIDGE_ID": "253" },
-  "routes": [{ "pattern": "api.brickellbridge.fun", "custom_domain": true }],
+  "routes": [
+    { "pattern": "api.brickellbridge.fun", "custom_domain": true },
+    { "pattern": "brickellbridge.fun", "custom_domain": true },
+    { "pattern": "www.brickellbridge.fun", "custom_domain": true }
+  ],
+  // The 3D status page. API paths are handled by the worker first.
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "TRACKER", "class_name": "BridgeTracker" }]

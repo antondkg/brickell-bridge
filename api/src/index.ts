@@ -2,7 +2,9 @@ import { DurableObject } from "cloudflare:workers";
 
 interface Env {
   TRACKER: DurableObjectNamespace<BridgeTracker>;
+  ASSETS: Fetcher;
   BRIDGE_ID: string;
+  GOOGLE_TILES_KEY?: string;
 }
 
 type State = "up" | "down" | "unknown";
@@ -137,6 +139,89 @@ export class BridgeTracker extends DurableObject<Env> {
   }
 }
 
+// ---------------------------------------------------------------- opening schedule
+// 33 CFR 117.305(d), Brickell Avenue Bridge: opens on signal, except Mon-Fri (not federal holidays)
+// 7 AM to 7 PM it need only open on the hour and half hour, and it need not open 7:35-8:59 AM,
+// 12:05-12:59 PM or 4:35-5:59 PM. Tugs, government vessels and emergencies are exempt.
+
+const TZ = "America/New_York";
+const BLACKOUTS: [number, number, string][] = [
+  [7 * 60 + 35, 9 * 60, "morning rush hour"],
+  [12 * 60 + 5, 13 * 60, "lunch hour"],
+  [16 * 60 + 35, 18 * 60, "evening rush hour"],
+];
+
+function nthWeekday(year: number, month: number, weekday: number, n: number): number {
+  const first = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  return 1 + ((weekday - first + 7) % 7) + (n - 1) * 7;
+}
+function lastWeekday(year: number, month: number, weekday: number): number {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0));
+  return lastDay.getUTCDate() - ((lastDay.getUTCDay() - weekday + 7) % 7);
+}
+/** Federal holidays (observed) as "M-D" strings for a year. */
+function federalHolidays(year: number): Set<string> {
+  const fixed = (m: number, d: number) => {
+    // Saturday holidays are observed Friday, Sunday holidays Monday
+    const wd = new Date(Date.UTC(year, m, d)).getUTCDay();
+    let shift = 0;
+    if (wd === 6) shift = -1;
+    if (wd === 0) shift = 1;
+    const obs = new Date(Date.UTC(year, m, d + shift));
+    return `${obs.getUTCMonth() + 1}-${obs.getUTCDate()}`;
+  };
+  return new Set([
+    fixed(0, 1), `1-${nthWeekday(year, 0, 1, 3)}`, `2-${nthWeekday(year, 1, 1, 3)}`, `5-${lastWeekday(year, 4, 1)}`,
+    fixed(5, 19), fixed(6, 4), `9-${nthWeekday(year, 8, 1, 1)}`, `10-${nthWeekday(year, 9, 1, 2)}`,
+    fixed(10, 11), `11-${nthWeekday(year, 10, 4, 4)}`, fixed(11, 25),
+  ]);
+}
+
+interface LocalTime { year: number; month: number; day: number; weekday: number; minute: number }
+const WEEKDAYS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const fmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: TZ, year: "numeric", month: "numeric", day: "numeric", weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23",
+});
+function local(d: Date): LocalTime {
+  const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value]));
+  return { year: +p.year, month: +p.month, day: +p.day, weekday: WEEKDAYS[p.weekday], minute: +p.hour * 60 + +p.minute };
+}
+
+type Mode = "on-signal" | "half-hourly" | "closed-to-boats";
+function modeAt(t: LocalTime): { mode: Mode; reason: string } {
+  const workday = t.weekday >= 1 && t.weekday <= 5 && !federalHolidays(t.year).has(`${t.month}-${t.day}`);
+  if (!workday) return { mode: "on-signal", reason: t.weekday === 0 || t.weekday === 6 ? "weekend" : "federal holiday" };
+  const blackout = BLACKOUTS.find(([a, b]) => t.minute >= a && t.minute < b);
+  if (blackout) return { mode: "closed-to-boats", reason: blackout[2] };
+  if (t.minute >= 7 * 60 && t.minute < 19 * 60) return { mode: "half-hourly", reason: "weekday daytime" };
+  return { mode: "on-signal", reason: "outside weekday restrictions" };
+}
+
+/** Where the schedule stands now and the next times the bridge is allowed to open. */
+function forecast(now = new Date()) {
+  const start = Math.floor(now.getTime() / 60000) * 60000;
+  const current = modeAt(local(now));
+  let modeUntil: number | null = null;
+  const slots: number[] = [];
+  for (let i = 1; i <= 36 * 60 && (modeUntil == null || slots.length < 4); i++) {
+    const at = start + i * 60000;
+    const lt = local(new Date(at));
+    const m = modeAt(lt);
+    if (modeUntil == null && m.mode !== current.mode) modeUntil = at;
+    // a slot is a moment a waiting boat would get through: any minute when on signal, :00/:30 when half-hourly
+    if (m.mode === "on-signal" && (slots.length === 0 || at - slots[slots.length - 1] >= 30 * 60000)) slots.push(at);
+    if (m.mode === "half-hourly" && lt.minute % 30 === 0) slots.push(at);
+  }
+  const iso = (ms: number | null) => (ms == null ? null : new Date(ms).toISOString().replace(".000Z", "Z"));
+  return {
+    mode: current.mode,
+    reason: current.reason,
+    modeUntil: iso(modeUntil),
+    nextSlots: slots.slice(0, 4).map(iso),
+    rule: "33 CFR 117.305(d). Tugs, government vessels and emergencies can get an opening at any time.",
+  };
+}
+
 const tracker = (env: Env) => env.TRACKER.get(env.TRACKER.idFromName(`bridge-${env.BRIDGE_ID}`));
 
 const CORS = {
@@ -149,13 +234,25 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: CORS });
 
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname, hostname } = url;
+    if (pathname === "/v1/forecast") {
+      const at = url.searchParams.get("at");
+      const when = at ? new Date(at) : new Date();
+      if (Number.isNaN(when.getTime())) return Response.json({ error: "at must be an ISO 8601 time" }, { status: 400, headers: CORS });
+      return Response.json(forecast(when), { headers: { ...CORS, "Cache-Control": "public, max-age=30" } });
+    }
+    if (pathname === "/config.json") {
+      return Response.json({ googleTilesKey: env.GOOGLE_TILES_KEY ?? null }, { headers: { "Cache-Control": "public, max-age=300" } });
+    }
+    // brickellbridge.fun and www serve the 3D page; /v1/* is the API on every host.
+    if (!hostname.startsWith("api.") && !pathname.startsWith("/v1/")) return env.ASSETS.fetch(request);
     if (pathname === "/") {
       return Response.json(
         {
           name: "Brickell Bridge API",
           source: "https://github.com/antondkg/brickell-bridge",
-          endpoints: ["/v1/status", "/v1/openings?days=35"],
+          endpoints: ["/v1/status", "/v1/openings?days=35", "/v1/forecast"],
           note: "Unofficial. Data comes from FL511 and may lag the real world.",
         },
         { headers: CORS },

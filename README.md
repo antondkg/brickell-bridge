@@ -23,6 +23,10 @@ A tiny macOS menu bar app that shows the live status of Miami's Brickell Avenue 
 
 </div>
 
+## Website
+
+**[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell built from real data. Every building comes from OpenStreetMap footprints and heights, and the ground and rooftops are Miami-Dade County's 2025 aerial photos, stored in the repo. The bridge raises and lowers with the live status. You can drag around, scrub the time of day, or hit **Watch it open**. Add `?t=19.5` to the URL to pin a time.
+
 ## Why
 
 If you live or work around Brickell, you know the bridge goes up at the worst possible time. FL511 sends email alerts, but they're easy to miss and they don't tell you how long it's been up. This puts the answer in your menu bar.
@@ -143,6 +147,11 @@ FL511 only reports the current status, so history needs something that's always 
 | --- | --- |
 | [`/v1/status`](https://api.brickellbridge.fun/v1/status) | Current state, when it last changed, and when the server last checked. |
 | [`/v1/openings?days=35`](https://api.brickellbridge.fun/v1/openings?days=35) | Every opening in the window (`start`, `end`, ISO 8601, `end` is null while up), plus `trackingSince`. Up to 120 days. |
+| [`/v1/forecast`](https://api.brickellbridge.fun/v1/forecast) | Where the federal opening schedule stands now (`on-signal`, `half-hourly` or `closed-to-boats`), until when, and the next times the bridge may open. Add `?at=` with an ISO time to check any moment. |
+
+### The opening schedule
+
+The Brickell Avenue Bridge runs on a federal schedule, [33 CFR 117.305(d)](https://www.law.cornell.edu/cfr/text/33/117.305). It opens whenever a boat signals, except on weekdays (not federal holidays): from 7 AM to 7 PM it only has to open on the hour and half hour, and from 7:35 to 8:59 AM, 12:05 to 12:59 PM and 4:35 to 5:59 PM it doesn't have to open at all. Tugs, government vessels and emergencies are exempt.
 
 The app does all the math itself from the raw openings, so the API stays tiny. It's open to anyone, with CORS enabled.
 
@@ -185,6 +194,17 @@ To find a camera, search the camera list for the bridge name. Use the image `id`
 curl -s 'https://fl511.com/List/GetData/Cameras?query=%7B%22columns%22%3A%5B%7B%22data%22%3Anull%2C%22name%22%3A%22%22%7D%5D%2C%22start%22%3A0%2C%22length%22%3A10%2C%22search%22%3A%7B%22value%22%3A%22brickell%22%7D%7D' \
   | python3 -m json.tool | grep -E '"id"|videoUrl|description'
 ```
+
+## Data sources
+
+| Data | Source | License |
+| --- | --- | --- |
+| Bridge status | [FL511](https://fl511.com) | Public, unofficial use |
+| Buildings, streets, water | [OpenStreetMap](https://www.openstreetmap.org/copyright) via `api/scripts/build_city.py` | ODbL |
+| Aerial photos | Miami-Dade County 2025 aerial imagery via `api/scripts/build_imagery.py` | Florida public record, credited on the page |
+| Opening rules | 33 CFR 117.305 | Public domain |
+
+The optional **Photoreal** button streams Google's photorealistic 3D tiles live, per Google's terms. Nothing from Google is stored.
 
 ## Privacy
 
