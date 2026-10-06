@@ -449,9 +449,8 @@ struct PopoverView: View {
     @ObservedObject var bridge: BridgeModel
     @ObservedObject var camera: CameraModel
     @ObservedObject var log: EventLog
+    let scrollHeight: CGFloat
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-
-    private var scrollHeight: CGFloat { min(620, (NSScreen.main?.visibleFrame.height ?? 900) - 190) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -523,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let bridge = BridgeModel()
     private let camera = CameraModel()
     private let log = EventLog()
+    private var hosting: NSHostingController<PopoverView>!
     private var stateSink: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -534,7 +534,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: PopoverView(bridge: bridge, camera: camera, log: log))
+        hosting = NSHostingController(rootView: popoverView(scrollHeight: 620))
+        // A fixed size: letting SwiftUI resize the popover while content loads makes macOS shove it over the menu bar.
+        hosting.sizingOptions = []
+        popover.contentViewController = hosting
 
         stateSink = bridge.$state.sink { [weak self] state in self?.animator.set(state) }
         bridge.onChange = { [weak self] _, new in
@@ -555,9 +558,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             bridge.poll()
             log.refresh()
             camera.start()
+            fitPopover(to: button.window?.screen ?? NSScreen.main)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    private func popoverView(scrollHeight: CGFloat) -> PopoverView {
+        PopoverView(bridge: bridge, camera: camera, log: log, scrollHeight: scrollHeight)
+    }
+
+    /// Size the scrolling area so the whole popover fits under the menu bar of the screen it opens on.
+    private func fitPopover(to screen: NSScreen?) {
+        let available = (screen?.visibleFrame.height ?? 800) - 30
+        let chrome: CGFloat = 120 // header, footer, padding
+        let view = popoverView(scrollHeight: max(240, min(620, available - chrome)))
+        hosting.rootView = view
+        popover.contentSize = NSHostingView(rootView: view).fittingSize
     }
 
     func popoverDidClose(_ notification: Notification) {
