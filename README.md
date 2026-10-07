@@ -29,7 +29,7 @@ A tiny macOS menu bar app that shows the live status of Miami's Brickell Avenue 
 
 ### iPhone shortcut
 
-[Get the Bridge Status shortcut](https://brickellbridge.fun/bridge-status.shortcut) on your iPhone. It reads [`/v1/summary`](https://api.brickellbridge.fun/v1/summary) and shows both bridges as a notification. To run it when you get in the car: Shortcuts, **Automation**, **+**, **Bluetooth**, pick your car, **Is Connected**, **Run Immediately**, then choose **Bridge Status**. The shortcut is built and signed by [`shortcut/build_shortcut.py`](shortcut/build_shortcut.py).
+[Get the "Is the Bridge Up" shortcut](https://brickellbridge.fun/bridge-status.shortcut) on your iPhone. It reads [`/v1/summary`](https://api.brickellbridge.fun/v1/summary) and shows both bridges as a notification. To run it when you get in the car: Shortcuts, **Automation**, **+**, **Bluetooth**, pick your car, **Is Connected**, **Run Immediately**, then choose **Is the Bridge Up**. You can also just ask "Hey Siri, is the bridge up?" and Siri reads both bridges out loud. The shortcut is built and signed by [`shortcut/build_shortcut.py`](shortcut/build_shortcut.py).
 
 ## Why
 

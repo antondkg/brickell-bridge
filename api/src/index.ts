@@ -540,7 +540,7 @@ export default {
       const res = await env.ASSETS.fetch(request);
       const out = new Response(res.body, res);
       out.headers.set("Content-Type", "application/octet-stream");
-      out.headers.set("Content-Disposition", 'attachment; filename="Bridge Status.shortcut"');
+      out.headers.set("Content-Disposition", 'attachment; filename="Is the Bridge Up.shortcut"');
       return out;
     }
     if (!hostname.startsWith("api.") && !pathname.startsWith("/v1/")) return env.ASSETS.fetch(request);
