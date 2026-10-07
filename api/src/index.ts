@@ -407,21 +407,47 @@ const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric"
 const minsAgo = (iso: string | null) => (iso ? Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000)) : null);
 const ago = (m: number | null) => (m == null ? "" : m < 60 ? ` (${m} min)` : ` (${Math.floor(m / 60)}h ${m % 60}m)`);
 
+/**
+ * When will a raised bridge come back down? Uses openings that lasted at least as long as this one has so far,
+ * so a long opening doesn't get the same estimate as one that just started.
+ */
+function downEstimate(durationsMin: number[], elapsedMin: number) {
+  const longer = durationsMin.filter((d) => d > elapsedMin).sort((a, b) => a - b);
+  if (durationsMin.length < 3) return null;
+  if (longer.length < 3) return { longRunning: true as const, typical: [...durationsMin].sort((a, b) => a - b)[Math.floor(durationsMin.length / 2)] };
+  const remaining = longer[Math.floor(longer.length / 2)] - elapsedMin;
+  const within5 = longer.filter((d) => d <= elapsedMin + 5).length / longer.length;
+  return { longRunning: false as const, remainingMin: Math.max(1, Math.round(remaining)), within5 };
+}
+
 interface SummaryInput {
   status: { state: string; since: string | null };
   river: { southMiami: { state: string }; upstream: { from: string; brickellExpected: string } | null };
   boats: { name: string | null; kind: string; etaMin: number | null }[];
   forecast: ReturnType<typeof forecast>;
+  durationsMin: number[];
 }
 /** One short headline plus a few lines, plain enough for a phone notification. */
-function summarize({ status, river, boats, forecast: f }: SummaryInput) {
+function summarize({ status, river, boats, forecast: f, durationsMin }: SummaryInput) {
   const b = status.state;
   const since = status.since ? ` since ${timeFmt.format(new Date(status.since))}${ago(minsAgo(status.since))}` : "";
   const sm = river.southMiami.state;
   const smShort = sm === "likely-up" ? "likely UP" : sm === "opening-soon" ? "may open soon" : "likely down";
-  const title = b === "up" ? `Brickell is UP · S Miami ${smShort}` : b === "down" ? `Brickell is down · S Miami ${smShort}` : "Brickell bridge status unknown";
   const lines: string[] = [];
-  if (b === "up") lines.push(`Brickell Ave bridge: UP, closed to traffic${since}.`);
+  let title = b === "down" ? `Brickell is down · S Miami ${smShort}` : "Brickell bridge status unknown";
+  if (b === "up") {
+    const elapsed = minsAgo(status.since) ?? 0;
+    const est = downEstimate(durationsMin, elapsed);
+    title = `Brickell is UP ${elapsed} min · S Miami ${smShort}`;
+    lines.push(`Brickell Ave bridge: UP, closed to traffic${since}.`);
+    if (est && !est.longRunning) {
+      const at = timeFmt.format(new Date(Date.now() + est.remainingMin * 60000));
+      title = `Brickell UP ${elapsed} min · likely down by ${at}`;
+      lines.push(`Usually back down around ${at} (about ${est.remainingMin} min). ${Math.round(est.within5 * 100)}% chance it's down within 5 min.`);
+    } else if (est) {
+      lines.push(`Running long: openings usually last about ${Math.round(est.typical)} min, so it could come down any moment.`);
+    }
+  }
   else if (b === "down") lines.push(`Brickell Ave bridge: down, open to traffic${since}.`);
   lines.push(`South Miami Ave bridge: ${smShort} (estimated).`);
   const boat = boats[0];
@@ -465,12 +491,14 @@ export default {
     }
     if (pathname === "/v1/summary") {
       const t = tracker(env);
-      const [status, river, vessels] = await Promise.all([
+      const [status, river, vessels, hist] = await Promise.all([
         t.fetch("https://tracker/v1/status").then((r) => r.json()),
         t.fetch("https://tracker/v1/river").then((r) => r.json()),
         t.fetch("https://tracker/v1/vessels").then((r) => r.json()),
-      ]) as [SummaryInput["status"], SummaryInput["river"], { vessels: (SummaryInput["boats"][number] & { approaching: boolean; needsOpening: boolean })[] }];
-      const sum = summarize({ status, river, boats: vessels.vessels.filter((v) => v.approaching && v.needsOpening), forecast: forecast() });
+        t.fetch("https://tracker/v1/openings?days=60").then((r) => r.json()),
+      ]) as [SummaryInput["status"], SummaryInput["river"], { vessels: (SummaryInput["boats"][number] & { approaching: boolean; needsOpening: boolean })[] }, { openings: { start: string; end: string | null }[] }];
+      const durationsMin = hist.openings.filter((o) => o.end).map((o) => (Date.parse(o.end!) - Date.parse(o.start)) / 60000);
+      const sum = summarize({ status, river, boats: vessels.vessels.filter((v) => v.approaching && v.needsOpening), forecast: forecast(), durationsMin });
       const headers = { ...CORS, "Cache-Control": "no-store" };
       if (url.searchParams.get("format") === "json") return Response.json(sum, { headers });
       return new Response(sum.text, { headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
