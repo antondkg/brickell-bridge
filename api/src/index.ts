@@ -459,6 +459,27 @@ function summarize({ status, river, boats, forecast: f, durationsMin }: SummaryI
 
 const tracker = (env: Env) => env.TRACKER.get(env.TRACKER.idFromName(`bridge-${env.BRIDGE_ID}`));
 
+// ---------------------------------------------------------------- live camera
+// FL511's Brickell Bridge CCTV is HLS behind a token that only fl511.com pages can request. The token step
+// runs here; the video server itself blocks Cloudflare, so browsers stream from it directly. Its media
+// playlist and segments only check the token (the master playlist also wants an fl511.com referrer).
+const CAM_IMAGE_ID = "5359";
+const CAM_BASE = "https://dis-se1.divas.cloud:8200/chan-12074_h/";
+const FL511_HEADERS = { Referer: "https://fl511.com/", "User-Agent": USER_AGENT };
+
+/** GetVideoUrl hands out a ticket; divas.cloud trades it for the stream's "?token=…". */
+async function camStream(): Promise<string> {
+  const ticket = await fetch(`https://fl511.com/Camera/GetVideoUrl?imageId=${CAM_IMAGE_ID}`, { headers: FL511_HEADERS });
+  const res = await fetch("https://divas.cloud/VDS-API/SecureTokenUri/GetSecureTokenUriBySourceId", {
+    method: "POST",
+    headers: { ...FL511_HEADERS, "Content-Type": "application/json" },
+    body: await ticket.text(),
+  });
+  const query = (await res.text()).replace(/"/g, "").trim();
+  if (!query.startsWith("?token=")) throw new Error("no camera token");
+  return `${CAM_BASE}xflow.m3u8${query}`;
+}
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -471,6 +492,13 @@ export default {
 
     const url = new URL(request.url);
     const { pathname, hostname } = url;
+    if (pathname === "/v1/cam") {
+      try {
+        return Response.json({ name: "Brickell Bridge CCTV", hls: await camStream() }, { headers: { ...CORS, "Cache-Control": "public, max-age=60" } });
+      } catch {
+        return Response.json({ error: "camera unavailable" }, { status: 502, headers: CORS });
+      }
+    }
     if (pathname === "/v1/forecast") {
       const at = url.searchParams.get("at");
       const when = at ? new Date(at) : new Date();
@@ -521,7 +549,7 @@ export default {
         {
           name: "Brickell Bridge API",
           source: "https://github.com/antondkg/brickell-bridge",
-          endpoints: ["/v1/summary", "/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels", "/v1/river"],
+          endpoints: ["/v1/summary", "/v1/status", "/v1/openings?days=35", "/v1/forecast", "/v1/vessels", "/v1/river", "/v1/cam"],
           note: "Unofficial. Data comes from FL511 and may lag the real world.",
         },
         { headers: CORS },

@@ -115,6 +115,33 @@
   .foot a { color: var(--ink-2); }
   .hint { transition: opacity 1s; }
 
+  /* ---------- live camera: floats under the header, over the scene */
+  .cam { position: absolute; z-index: 1; top: calc(max(14px, env(safe-area-inset-top)) + 52px); right: var(--pad); width: min(400px, calc(100% - 2 * var(--pad))); border-radius: var(--r-panel); padding: 10px; pointer-events: auto; transform-origin: top right; animation: camIn .35s var(--ease-out); }
+  .cam[hidden] { display: none; }
+  @keyframes camIn { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+  .cam-head { display: flex; justify-content: space-between; align-items: center; padding: 0 2px 8px 4px; }
+  .cam-title { display: inline-flex; align-items: center; gap: 8px; font: 600 13px var(--body); color: var(--ink); }
+  .cam-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wait); }
+  .cam-dot.on { background: var(--up); box-shadow: 0 0 0 3px rgba(255,97,102,.22); }
+  .cam-x { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 99px; border: 0; background: rgba(255,255,255,.08); color: var(--ink); cursor: pointer; transition: background .2s; }
+  .cam-x:hover { background: rgba(255,255,255,.16); }
+  .cam-frame { position: relative; aspect-ratio: 5 / 4; border-radius: var(--r-tile); overflow: hidden; background: #050913; }
+  .cam-frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .6s var(--ease-out); }
+  .cam.playing video { opacity: 1; }
+  .cam-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; text-align: center; font: 500 13px/1.45 var(--body); color: var(--ink-2); background: linear-gradient(110deg, rgba(255,255,255,.02) 30%, rgba(255,255,255,.07) 50%, rgba(255,255,255,.02) 70%) 0 0 / 300% 100%; animation: shimmer 1.6s linear infinite; transition: opacity .4s; }
+  .cam.playing .cam-state { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .4s, visibility 0s .4s; }
+  .cam-state .pill[hidden] { display: none; }
+  .cam.offline .cam-state { animation: none; background: none; }
+  .cam-msg { max-width: 30ch; }
+  @keyframes shimmer { to { background-position: -300% 0; } }
+
+  /* scroll first: the scene takes the mouse only after a click */
+  canvas#scene { cursor: pointer; }
+  body.exploring canvas#scene { cursor: grab; }
+  body.exploring canvas#scene:active { cursor: grabbing; }
+  .explore[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .explore[aria-pressed="true"]:hover { background: var(--accent); }
+
   /* ---------- stats below the fold */
   .stats-page { position: relative; z-index: 2; background: var(--bg-2); border-radius: 24px 24px 0 0; box-shadow: 0 -24px 60px rgba(4, 8, 18, .55); padding-inline: var(--pad); padding-block: 40px max(36px, env(safe-area-inset-bottom)); }
   .stats-inner { max-width: 1040px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
@@ -195,6 +222,9 @@
     .answer { padding-bottom: 12px; }
     .next { width: 100%; }
     .bottom > * { flex: 1 1 100%; }
+    .bottom > .demo { flex: 1 1 0; }
+    .cam { padding: 8px; }
+    .cam-frame { aspect-ratio: 16 / 10; }
     .clock .track { flex: 1; min-width: 60px; }
     .clock input { width: 100%; }
     .foot { flex-direction: column; gap: 2px; }
@@ -212,7 +242,7 @@
     .foot .hint, .fc { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .live.on i, .a.changed { animation: none; }
+    .live.on i, .a.changed, .cam, .cam-state { animation: none; }
     .reveal { opacity: 1; transform: none; transition: none; }
   }
 </style>
@@ -234,6 +264,7 @@
     <header class="top">
       <div class="brand"><span class="live glass" id="live"><i></i>LIVE</span><span class="sm-hide">Brickell Bridge</span></div>
       <nav class="actions" aria-label="Page">
+        <button class="pill glass icon-sm" id="camBtn" aria-pressed="false" aria-controls="cam" title="Live camera"><i class="ph ph-video-camera" aria-hidden="true"></i><span class="sm-hide">Live cam</span></button>
         <a class="pill glass" href="#stats"><i class="ph ph-chart-bar" aria-hidden="true"></i>Stats</a>
         <button class="pill glass icon-sm" id="photo" aria-pressed="false" disabled title="Google photorealistic 3D"><i class="ph ph-buildings" aria-hidden="true"></i><span class="sm-hide">Photoreal</span></button>
         <button class="pill glass icon-sm" id="sound" aria-pressed="false" title="Bells and horns"><i class="ph ph-speaker-slash" id="soundIcon" aria-hidden="true"></i><span class="sm-hide">Sound</span></button>
@@ -242,6 +273,20 @@
     </header>
 
     <div></div>
+
+    <aside class="cam glass" id="cam" aria-label="Brickell Bridge live camera" hidden>
+      <div class="cam-head">
+        <span class="cam-title"><i class="cam-dot" id="camDot"></i>Bridge camera</span>
+        <button class="cam-x" id="camClose" aria-label="Close camera"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <div class="cam-frame">
+        <video id="camVideo" muted playsinline autoplay disablepictureinpicture aria-label="Live video of the Brickell Avenue Bridge from FL511"></video>
+        <div class="cam-state" id="camState">
+          <span class="cam-msg" id="camMsg">Starting the camera</span>
+          <button class="pill glass" id="camRetry" hidden><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>Try again</button>
+        </div>
+      </div>
+    </aside>
 
     <section class="answer" aria-live="polite">
       <p class="q">Is Brickell Bridge up?</p>
@@ -261,9 +306,10 @@
           <button id="liveTime" aria-pressed="true">LIVE</button>
         </div>
         <button class="pill glass demo" id="demo"><i class="ph ph-play" aria-hidden="true"></i>Watch it open</button>
+        <button class="pill glass demo explore" id="explore" aria-pressed="false"><i class="ph ph-cube" id="exploreIcon" aria-hidden="true"></i><span id="exploreLabel">Explore 3D</span></button>
       </div>
       <div class="foot">
-        <span class="hint" id="hint">Drag to rotate, right-drag to pan, scroll to zoom</span>
+        <span class="hint" id="hint">Click the city to explore it in 3D</span>
         <span>Data from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a>, OpenStreetMap and Miami-Dade County<span id="googleCredit" hidden>, 3D from Google</span></span>
       </div>
     </footer>
@@ -349,15 +395,6 @@ const camera = new THREE.PerspectiveCamera(MOBILE ? 52 : 40, 1, 1, 12000);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 18, 0);
 controls.enableDamping = true;
-// One finger swipes up and down scroll the page (sideways still rotates); pinch zooms.
-canvas.style.touchAction = "pan-y";
-// The wheel scrolls the page; ⌘/ctrl + wheel (and trackpad pinch, which sends ctrl) zooms the scene.
-// The wheel zooms while you're on the 3D view. Zoom all the way out and keep scrolling to reach the stats;
-// further down the page the wheel just scrolls. ⌘/ctrl + wheel (trackpad pinch) always zooms.
-canvas.addEventListener("wheel", (e) => {
-  const zoomedOut = camera.position.distanceTo(controls.target) >= controls.maxDistance * 0.97;
-  controls.enableZoom = e.ctrlKey || e.metaKey || (scrollY < 4 && !(e.deltaY > 0 && zoomedOut));
-}, { capture: true, passive: true });
 controls.dampingFactor = 0.06;
 controls.enablePan = true;
 controls.screenSpacePanning = false;   // pan slides along the ground instead of up into the sky
@@ -376,7 +413,30 @@ controls.addEventListener("start", () => { idle = false; clearTimeout(idleTimer)
 controls.addEventListener("end", () => { idleTimer = setTimeout(() => (idle = true), 9000); });
 const _off = new THREE.Vector3();
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
-if (MOBILE) $("hint").textContent = "Swipe sideways to rotate, pinch to zoom";
+
+// Scroll first. The page scrolls over the scene until you click or tap the city (or press Explore 3D);
+// then drag, pinch and the wheel drive the camera until Done, Escape, or scrolling away.
+let exploring = false;
+const HINTS = {
+  off: MOBILE ? "Tap the city to explore it in 3D" : "Click the city to explore it in 3D",
+  on: MOBILE ? "Drag to rotate, pinch to zoom, two fingers to pan" : "Drag to rotate, right-drag to pan, scroll to zoom",
+};
+function setExplore(on) {
+  exploring = on;
+  controls.enabled = on;
+  canvas.style.touchAction = on ? "none" : "auto";
+  document.body.classList.toggle("exploring", on);
+  $("explore").setAttribute("aria-pressed", String(on));
+  $("exploreLabel").textContent = on ? "Done" : "Explore 3D";
+  $("exploreIcon").className = on ? "ph ph-check" : "ph ph-cube";
+  $("hint").textContent = HINTS[on ? "on" : "off"];
+  $("hint").style.opacity = 1;
+}
+setExplore(false);
+canvas.addEventListener("click", () => { if (!exploring) setExplore(true); });
+$("explore").addEventListener("click", () => setExplore(!exploring));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && exploring) setExplore(false); });
+addEventListener("scroll", () => { if (exploring && scrollY > 80) setExplore(false); }, { passive: true });
 function driftCamera(dt, t) {
   if (!idle || REDUCED_MOTION) return;
   _off.copy(camera.position).sub(controls.target);
@@ -1470,6 +1530,80 @@ $("sound").addEventListener("click", () => {
   $("soundIcon").className = `ph ${on ? "ph-speaker-high" : "ph-speaker-slash"}`;
   if (on) sound.bell();
 });
+
+// ---------------------------------------------------------------- live camera (FL511 Brickell Bridge CCTV)
+// The API hands out a tokenized HLS URL and the browser streams it straight from FL511's video server.
+// FL511 starts a transcode for each viewer, so the first frame takes a few seconds. Open by default on
+// desktop, closed on phones (it's video data); the choice is remembered.
+const HLS_URL = "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.light.min.mjs";
+const camEl = $("cam"), camVideo = $("camVideo");
+const cam = { open: false, hls: null, watchdog: 0, retry: 0, run: 0 };
+function camShow(phase, msg) {
+  camEl.classList.toggle("playing", phase === "playing");
+  camEl.classList.toggle("offline", phase === "offline");
+  $("camDot").classList.toggle("on", phase === "playing");
+  $("camMsg").textContent = msg ?? "";
+  $("camRetry").hidden = phase !== "offline";
+}
+function camStop() {
+  cam.run++;
+  clearTimeout(cam.watchdog); clearTimeout(cam.retry);
+  cam.hls?.destroy(); cam.hls = null;
+  camVideo.removeAttribute("src"); camVideo.load();
+}
+function camOffline() {
+  camStop();
+  camShow("offline", "The camera is offline right now. Trying again in 30 seconds.");
+  cam.retry = setTimeout(() => cam.open && !document.hidden && camStart(), 30000);
+}
+async function camStart() {
+  camStop();
+  const run = cam.run;
+  camShow("connecting", "Starting the camera, this takes a few seconds");
+  cam.watchdog = setTimeout(() => run === cam.run && camOffline(), 35000);
+  try {
+    const res = await fetch(`${API}/v1/cam`);
+    const { hls: src } = await res.json();
+    if (!src) throw new Error("no stream");
+    if (run !== cam.run) return;
+    const Hls = (window.MediaSource || window.ManagedMediaSource) ? (await import(HLS_URL)).default : null;
+    if (run !== cam.run) return;
+    if (Hls?.isSupported()) {
+      const hls = cam.hls = new Hls({ liveSyncDurationCount: 2, manifestLoadingTimeOut: 30000, manifestLoadingMaxRetry: 2, levelLoadingTimeOut: 30000, backBufferLength: 10 });
+      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal && run === cam.run) camOffline(); });
+      hls.loadSource(src);
+      hls.attachMedia(camVideo);
+    } else if (camVideo.canPlayType("application/vnd.apple.mpegurl")) {
+      camVideo.src = src;
+    } else {
+      throw new Error("no HLS support");
+    }
+    camVideo.play().catch(() => {});
+  } catch {
+    if (run === cam.run) camOffline();
+  }
+}
+camVideo.addEventListener("playing", () => { clearTimeout(cam.watchdog); camShow("playing"); });
+camVideo.addEventListener("error", () => cam.open && camOffline());
+function setCam(open, remember = true) {
+  cam.open = open;
+  camEl.hidden = !open;
+  $("camBtn").setAttribute("aria-pressed", String(open));
+  if (remember) try { localStorage.setItem("cam", open ? "1" : "0"); } catch {}
+  open ? camStart() : camStop();
+}
+$("camBtn").addEventListener("click", () => setCam(!cam.open));
+$("camClose").addEventListener("click", () => setCam(false));
+$("camRetry").addEventListener("click", camStart);
+document.addEventListener("visibilitychange", () => {
+  if (!cam.open) return;
+  document.hidden ? camStop() : camStart();
+});
+{
+  let saved = null;
+  try { saved = localStorage.getItem("cam"); } catch {}
+  if (saved ? saved === "1" : !MOBILE && innerWidth >= 1024) setCam(true, false);
+}
 
 // ---------------------------------------------------------------- bridge state machine
 let gate = 0, leaf = 0, lastBell = 0, nextSpeed = 3, nextTall = 0, shownHour = -1;

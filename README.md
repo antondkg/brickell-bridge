@@ -25,7 +25,7 @@ A tiny macOS menu bar app that shows the live status of Miami's Brickell Avenue 
 
 ## Website
 
-**[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell with the bridge raising and lowering with the real status. By default it streams Google's photorealistic 3D city, with our animated bascule span cut into it. If that's unavailable (no key, or the daily cap is reached), it falls back to a model built entirely from stored open data: OpenStreetMap buildings and Miami-Dade County's 2025 aerial photos. You can drag around, scrub the time of day, or hit **Watch it open**. Add `?t=19.5` to pin a time, or `?map=model` to see the open-data model.
+**[brickellbridge.fun](https://brickellbridge.fun)** answers the question in one viewport: a live 3D Brickell with the bridge raising and lowering with the real status. By default it streams Google's photorealistic 3D city, with our animated bascule span cut into it. If that's unavailable (no key, or the daily cap is reached), it falls back to a model built entirely from stored open data: OpenStreetMap buildings and Miami-Dade County's 2025 aerial photos. The page scrolls first: click or tap the city (or **Explore 3D**) to rotate, pan and zoom, and **Done** hands scrolling back. **Live cam** plays FL511's Brickell Bridge camera right on the page. You can also scrub the time of day or hit **Watch it open**. Add `?t=19.5` to pin a time, or `?map=model` to see the open-data model.
 
 ### iPhone shortcut
 
@@ -153,6 +153,7 @@ FL511 only reports the current status, so history needs something that's always 
 | [`/v1/status`](https://api.brickellbridge.fun/v1/status) | Current state, when it last changed, and when the server last checked. |
 | [`/v1/openings?days=35`](https://api.brickellbridge.fun/v1/openings?days=35) | Every opening in the window (`start`, `end`, ISO 8601, `end` is null while up), plus `trackingSince`. Up to 120 days. |
 | [`/v1/river`](https://api.brickellbridge.fun/v1/river) | Every Miami River drawbridge FL511 reports, in order from the bay, plus an estimate for South Miami Avenue (which FL511 doesn't report) and an early warning when an upstream bridge opens before Brickell. |
+| [`/v1/cam`](https://api.brickellbridge.fun/v1/cam) | A fresh HLS URL for FL511's Brickell Bridge camera. The token step runs on the server; the video streams straight from FL511. |
 | [`/v1/forecast`](https://api.brickellbridge.fun/v1/forecast) | Where the federal opening schedule stands now (`on-signal`, `half-hourly` or `closed-to-boats`), until when, and the next times the bridge may open. Add `?at=` with an ISO time to check any moment. |
 
 ### South Miami Avenue and the rest of the river
