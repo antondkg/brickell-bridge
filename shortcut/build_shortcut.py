@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build the "Bridge Status" iOS Shortcut: fetch /v1/summary and show it as a notification.
+"""Build the "Bridge Status" iOS Shortcut: fetch /v1/summary, show it as a notification, and output it
+so Siri reads it aloud ("Hey Siri, Bridge Status"). Run from an automation, the output goes nowhere.
 
 Run on a Mac signed in to iCloud:  python3 build_shortcut.py
 Produces ../api/public/bridge-status.shortcut (signed, importable on any iPhone).
@@ -39,6 +40,10 @@ actions = [
      "WFWorkflowActionParameters": {"WFNotificationActionTitle": token_string(output(title, "Dictionary Value")),
                                     "WFNotificationActionBody": token_string(output(body, "Dictionary Value")),
                                     "WFNotificationActionSound": True}},
+    # Siri speaks a shortcut's output; without this it just says "Done".
+    {"WFWorkflowActionIdentifier": "is.workflow.actions.output",
+     "WFWorkflowActionParameters": {"WFOutput": token_string(output(body, "Dictionary Value")),
+                                    "WFNoOutputSurfaceBehavior": "Do Nothing"}},
 ]
 workflow = {
     "WFWorkflowName": "Bridge Status",
