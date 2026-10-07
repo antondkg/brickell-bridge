@@ -36,7 +36,7 @@
   body { min-height: 100%; overflow-x: hidden; background: #0a1020; color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
   canvas#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; outline: none; }
 
-  .hero { position: relative; height: 100dvh; }
+  .hero { position: relative; height: 100dvh; pointer-events: none; }   /* the 3D canvas behind it gets the drag/wheel */
   .ui { position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; padding: max(14px, env(safe-area-inset-top)) var(--pad) calc(max(14px, env(safe-area-inset-bottom)) + 30px); }
   .ui > * { pointer-events: none; }
   .ui a, .ui button, .ui input { pointer-events: auto; }
@@ -59,6 +59,7 @@
   .pill:focus-visible, input:focus-visible, .clock button:focus-visible { outline: 2px solid var(--down); outline-offset: 2px; }
   .pill svg { width: 15px; height: 15px; flex: none; }
   .hide-sm { display: inline; }
+  .pill.hide-sm { display: inline-flex; }
 
   .answer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-bottom: 12px; max-width: 760px; }
   .q { font: 600 clamp(12px, 1.5vw, 15px) var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
@@ -86,7 +87,10 @@
   .controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .clock { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: 99px; border: 1px solid var(--glass-line); background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   .clock label { font: 600 12px var(--mono); color: var(--ink); min-width: 9.5ch; }
-  .clock input { -webkit-appearance: none; appearance: none; width: clamp(110px, 20vw, 210px); height: 4px; border-radius: 4px; background: linear-gradient(90deg, #0b1430, #ff9a5c 26%, #8fd0ff 50%, #ff8a4c 76%, #0b1430); cursor: pointer; }
+  .clock .track { position: relative; display: flex; align-items: center; }
+  .clock .marks { position: absolute; left: 9px; right: 9px; top: 50%; height: 12px; transform: translateY(-50%); pointer-events: none; }
+  .clock .marks i { position: absolute; top: 0; bottom: 0; min-width: 2px; border-radius: 1px; background: var(--up); box-shadow: 0 0 0 1px rgba(10,16,32,.6); }
+  .clock input { position: relative; -webkit-appearance: none; appearance: none; width: clamp(110px, 20vw, 210px); height: 4px; border-radius: 4px; background: linear-gradient(90deg, #0b1430, #ff9a5c 26%, #8fd0ff 50%, #ff8a4c 76%, #0b1430); cursor: pointer; }
   .clock input::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); }
   .clock input::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: #fff; }
   .clock button { height: 28px; padding: 0 10px; border-radius: 99px; border: 0; background: rgba(255,255,255,.1); color: var(--ink); font: 600 11px var(--body); letter-spacing: .06em; cursor: pointer; }
@@ -171,7 +175,8 @@
     .controls { width: 100%; }
     .clock { flex: 1 1 260px; min-width: 0; }
     .demo { flex: 1 1 auto; justify-content: center; }
-    .clock input { flex: 1; width: auto; min-width: 60px; }
+    .clock .track { flex: 1; min-width: 60px; }
+    .clock input { flex: 1; width: 100%; min-width: 60px; }
     .foot { flex-direction: column; gap: 2px; }
   }
   @media (max-height: 600px) and (orientation: landscape) {
@@ -228,7 +233,7 @@
       <div class="controls">
         <div class="clock">
           <label for="time" id="timeLabel">Miami --:--</label>
-          <input id="time" type="range" min="0" max="1439" step="1" aria-label="Time of day in Miami">
+          <span class="track"><span class="marks" id="marks" aria-hidden="true"></span><input id="time" type="range" min="0" max="1439" step="1" aria-label="Time of day in Miami: replays today's openings"></span>
           <button id="liveTime" aria-pressed="true">LIVE</button>
         </div>
         <button class="pill demo" id="demo">
@@ -238,7 +243,7 @@
       </div>
     </div>
     <div class="foot">
-      <span class="hint" id="hint">Drag to look around · pinch or ⌘ + scroll to zoom</span>
+      <span class="hint" id="hint">Drag to rotate · right-drag to pan · scroll to zoom</span>
       <span>Unofficial · status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a> · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · imagery © Miami-Dade County<span id="googleCredit" hidden> · 3D © Google</span> · <a href="/v1/status">API</a></span>
     </div>
   </footer>
@@ -279,6 +284,8 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 // ---------------------------------------------------------------- constants
 const API = location.protocol === "file:" ? "https://api.brickellbridge.fun" : "";
@@ -312,6 +319,10 @@ renderer.shadowMap.enabled = !MOBILE;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+// The environment is there for car paint and glass; matte surfaces get only a touch of it (set after materials exist).
+const MATTE_ENV = 0.12;
 scene.fog = new THREE.Fog(0x9ec4e8, 900, 3600);
 const camera = new THREE.PerspectiveCamera(MOBILE ? 52 : 40, 1, 1, 12000);
 
@@ -321,11 +332,17 @@ controls.enableDamping = true;
 // One finger swipes up and down scroll the page (sideways still rotates); pinch zooms.
 canvas.style.touchAction = "pan-y";
 // The wheel scrolls the page; ⌘/ctrl + wheel (and trackpad pinch, which sends ctrl) zooms the scene.
-canvas.addEventListener("wheel", (e) => { controls.enableZoom = e.ctrlKey || e.metaKey; }, { capture: true, passive: true });
+// The wheel zooms while you're on the 3D view. Zoom all the way out and keep scrolling to reach the stats;
+// further down the page the wheel just scrolls. ⌘/ctrl + wheel (trackpad pinch) always zooms.
+canvas.addEventListener("wheel", (e) => {
+  const zoomedOut = camera.position.distanceTo(controls.target) >= controls.maxDistance * 0.97;
+  controls.enableZoom = e.ctrlKey || e.metaKey || (scrollY < 4 && !(e.deltaY > 0 && zoomedOut));
+}, { capture: true, passive: true });
 controls.dampingFactor = 0.06;
-controls.enablePan = false;
+controls.enablePan = true;
+controls.screenSpacePanning = false;   // pan slides along the ground instead of up into the sky
 controls.minDistance = 60;
-controls.maxDistance = 1400;
+controls.maxDistance = 950;
 controls.maxPolarAngle = 1.48;
 controls.minPolarAngle = 0.2;
 
@@ -532,6 +549,9 @@ buildingMat.onBeforeCompile = (sh) => {
     .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, .55, win * glassy);")
     .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += mix(vec3(1., .78, .52), vec3(.75, .85, 1.), step(.86, id)) * lit * uNight * (.18 + .42 * fract(id * 7.31));");
 };
+
+for (const m of [mat.land, mat.road, mat.concrete, mat.pier, mat.asphalt, mat.trunk, mat.frond]) m.envMapIntensity = MATTE_ENV;
+buildingMat.envMapIntensity = 0.3;
 
 // ---------------------------------------------------------------- city from OpenStreetMap
 const world = new THREE.Group();
@@ -774,15 +794,25 @@ let road = null;
 const LANES = [{ off: 3, dir: -1 }, { off: 6.8, dir: -1 }, { off: -3, dir: 1 }, { off: -6.8, dir: 1 }];  // dir +1 = southbound along the route
 const PER_LANE = MOBILE ? 12 : 18;
 const carCount = LANES.length * PER_LANE;
-const carBody = new THREE.InstancedMesh(new THREE.BoxGeometry(2, 1.1, 4.5), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.5 }), carCount);
-const carCabin = new THREE.InstancedMesh(new THREE.BoxGeometry(1.8, 0.8, 2.3), new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.15, metalness: 0.6 }), carCount);
+// Automotive paint: a metallic base under a glossy clear coat, lit by the environment map for real reflections.
+const carPaint = new THREE.MeshPhysicalMaterial({ metalness: 0.55, roughness: 0.34, clearcoat: 1, clearcoatRoughness: 0.06 });
+const carBody = new THREE.InstancedMesh(new RoundedBoxGeometry(1.95, 0.82, 4.55, 3, 0.3), carPaint, carCount);
+const carCabin = new THREE.InstancedMesh(new RoundedBoxGeometry(1.72, 0.62, 2.35, 3, 0.24),
+  new THREE.MeshPhysicalMaterial({ color: 0x0e1520, roughness: 0.05, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.02 }), carCount);
+const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.26, 14);
+wheelGeo.rotateZ(Math.PI / 2);
+const wheels = new THREE.InstancedMesh(wheelGeo, new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9 }), carCount * 4);
 const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff1d0, emissiveIntensity: 0.3 });
 const tailMat = new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff2020, emissiveIntensity: 0.6 });
 const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.26, 0.1), headMat, carCount);
 const tails = new THREE.InstancedMesh(new THREE.BoxGeometry(1.7, 0.26, 0.1), tailMat, carCount);
 carBody.castShadow = !MOBILE;
-for (const im of [carBody, carCabin, heads, tails]) { im.count = 0; scene.add(im); }
-const CAR_COLORS = [0xf2f2f2, 0x1d1f24, 0x8c949e, 0xb3202a, 0x1f4fa3, 0xd8d2c4, 0x2f6b4f, 0x111111, 0xe0a21c];
+for (const im of [carBody, carCabin, heads, tails, wheels]) { im.count = 0; scene.add(im); }
+// Roughly the mix you see on US roads: lots of white, black, gray and silver, a little blue and red.
+const CAR_COLORS = [
+  [0xe8e9eb, 25], [0x15171a, 21], [0x5b6067, 17], [0xb6bac0, 14], [0x1d2c4a, 9], [0x6e1216, 7], [0xc8b796, 4], [0x23362c, 3],
+];
+const carColor = () => { let r = rand() * 100; for (const [c, w] of CAR_COLORS) { r -= w; if (r <= 0) return c; } return CAR_COLORS[0][0]; };
 const cars = [];
 function initCars() {
   for (const lane of LANES) {
@@ -790,10 +820,11 @@ function initCars() {
     for (let i = 0; i < PER_LANE; i++) {
       p += randRange(16, road.len / PER_LANE);
       cars.push({ lane, p, v: 12, vmax: randRange(11, 15), i: cars.length });
-      carBody.setColorAt(cars.length - 1, new THREE.Color(CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]));
+      carBody.setColorAt(cars.length - 1, new THREE.Color(carColor()));
     }
   }
   for (const im of [carBody, carCabin, heads, tails]) im.count = carCount;
+  wheels.count = carCount * 4;
 }
 // p = progress along the lane's own direction of travel
 const routeS = (c) => (c.lane.dir > 0 ? c.p : road.len - c.p);
@@ -821,12 +852,17 @@ function updateCars(dt, stopActive) {
     _q.setFromAxisAngle(_up, Math.atan2(fx, fz));
     const sc = c.p > 0 ? _one : _zero;
     const y = ROAD_Y + level.road(routeS(c));
-    _m4.compose(_v3.set(px, y + 0.65, pz), _q, sc); carBody.setMatrixAt(c.i, _m4);
-    _m4.compose(_v3.set(px - fx * 0.3, y + 1.55, pz - fz * 0.3), _q, sc); carCabin.setMatrixAt(c.i, _m4);
+    _m4.compose(_v3.set(px, y + 0.78, pz), _q, sc); carBody.setMatrixAt(c.i, _m4);
+    _m4.compose(_v3.set(px - fx * 0.25, y + 1.42, pz - fz * 0.25), _q, sc); carCabin.setMatrixAt(c.i, _m4);
+    for (let w = 0; w < 4; w++) {
+      const along = w < 2 ? 1.45 : -1.45, side = w % 2 ? 0.86 : -0.86;
+      _m4.compose(_v3.set(px + fx * along - fz * side, y + 0.36, pz + fz * along + fx * side), _q, sc);
+      wheels.setMatrixAt(c.i * 4 + w, _m4);
+    }
     _m4.compose(_v3.set(px + fx * 2.27, y + 0.72, pz + fz * 2.27), _q, sc); heads.setMatrixAt(c.i, _m4);
     _m4.compose(_v3.set(px - fx * 2.27, y + 0.78, pz - fz * 2.27), _q, sc); tails.setMatrixAt(c.i, _m4);
   }
-  for (const im of [carBody, carCabin, heads, tails]) im.instanceMatrix.needsUpdate = true;
+  for (const im of [carBody, carCabin, heads, tails, wheels]) im.instanceMatrix.needsUpdate = true;
 }
 const bridgeClear = () => !road || cars.every((c) => Math.abs(routeS(c) - road.origin) > HINGE + 6 || c.v < 0.1);
 
@@ -1009,7 +1045,7 @@ async function setupGoogle() {
   $("photo").disabled = !googleKey;
 }
 const wantPhoto = () => googleKey && new URLSearchParams(location.search).get("map") !== "model";
-if (location.hostname === "localhost") window.__bb = { THREE, get tiles() { return tiles; }, scene, camera };   // dev inspection only
+if (location.hostname === "localhost") window.__bb = { THREE, get tiles() { return tiles; }, scene, camera, controls, freeze: () => { idle = false; clearTimeout(idleTimer); } };   // dev inspection only
 const modelLevel = { ...level };
 let photoLevel = null;
 function applyMode() {
@@ -1158,6 +1194,7 @@ function applyTime(hour) {
   tailMat.emissiveIntensity = 0.5 + nv * 2;
   for (const g of tenderGlass) g.emissiveIntensity = nv * 1.4;
   renderer.toneMappingExposure = 1.0 + nv * 0.2;
+  scene.environmentIntensity = 0.55 - nv * 0.4;
   bloom.strength = 0.12 + nv * 0.42;
 }
 
@@ -1227,7 +1264,16 @@ async function loadForecast() {
 const miamiParts = (d) => Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(d).map((p) => [p.type, p.value]));
 const minuteOfDay = (d) => { const p = miamiParts(d); return +p.hour * 60 + +p.minute; };
 const mins = (o) => ((o.end ?? new Date()) - o.start) / 60000;
+function renderMarks() {
+  if (!live.openings) return;
+  const today = miamiDay(new Date());
+  $("marks").innerHTML = live.openings.filter((o) => miamiDay(o.start) === today).map((o) => {
+    const s0 = minuteOfDay(o.start);
+    return `<i style="left:${(s0 / 1440) * 100}%;width:${(mins(o) / 1440) * 100}%"></i>`;
+  }).join("");
+}
 function renderStats() {
+  renderMarks();
   const rv = live.river;
   if (rv) {
     $("riverRows").innerHTML = rv.bridges.map((b) => {
@@ -1355,8 +1401,14 @@ function render() {
     ? `<span>Today <b>${live.todayCount}</b> openings</span><span><b>${fmtDur(live.todayMin)}</b> up</span>` + (live.median ? `<span>Typical opening <b>${fmtDur(live.median)}</b></span>` : "")
     : "";
   const demo = Date.now() < demoUntil;
-  $("demoChip").classList.toggle("on", demo);
-  $("demoChip").textContent = demo ? `Demo animation · the real bridge is ${live.state === "up" ? "up" : "down"}` : "";
+  const replay = replayState();
+  let chip = demo ? `Demo animation. The real bridge is ${live.state === "up" ? "up" : "down"}.` : "";
+  if (replay) {
+    const when = hourLabel(timeOverride).replace("Miami ", "");
+    chip = replay === "later" ? `Replaying today: ${when} hasn't happened yet.` : `Replaying today at ${when}: the bridge was ${replay === "up" ? "up" : "down"}.`;
+  }
+  $("demoChip").classList.toggle("on", !!chip);
+  $("demoChip").textContent = chip;
 }
 
 // ---------------------------------------------------------------- controls
@@ -1370,8 +1422,8 @@ function miamiHourNow() {
   return +p.find((x) => x.type === "hour").value + +p.find((x) => x.type === "minute").value / 60;
 }
 const hourLabel = (h) => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60); return `Miami ${(hh % 12) || 12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "AM" : "PM"}`; };
-timeInput.addEventListener("input", () => { timeOverride = timeInput.value / 60; liveBtn.setAttribute("aria-pressed", "false"); });
-liveBtn.addEventListener("click", () => { timeOverride = null; liveBtn.setAttribute("aria-pressed", "true"); });
+timeInput.addEventListener("input", () => { timeOverride = timeInput.value / 60; liveBtn.setAttribute("aria-pressed", "false"); render(); });
+liveBtn.addEventListener("click", () => { timeOverride = null; liveBtn.setAttribute("aria-pressed", "true"); render(); });
 $("demo").addEventListener("click", () => { demoUntil = Date.now() + 60000; nextTall = 0; render(); setTimeout(render, 60100); });
 $("photo").addEventListener("click", () => { if (!photoOn && !tiles) toast("Loading photoreal 3D…"); enablePhoto(!photoOn); });
 $("sound").addEventListener("click", () => {
@@ -1383,11 +1435,25 @@ $("sound").addEventListener("click", () => {
 
 // ---------------------------------------------------------------- bridge state machine
 let gate = 0, leaf = 0, lastBell = 0, nextSpeed = 3, nextTall = 0, shownHour = -1;
-const wantUp = () => Date.now() < demoUntil || live.state === "up";
+// While the time slider is off LIVE it replays today: was the bridge up at that minute (Miami time)?
+function replayState() {
+  if (timeOverride === null || !live.openings) return null;
+  const nowMin = minuteOfDay(new Date()), at = timeOverride * 60;
+  if (at > nowMin + 1) return "later";
+  const today = miamiDay(new Date());
+  const up = live.openings.some((o) => miamiDay(o.start) === today && minuteOfDay(o.start) <= at && (o.end ? minuteOfDay(o.end) : nowMin) > at);
+  return up ? "up" : "down";
+}
+const wantUp = () => {
+  const replay = replayState();
+  if (replay === "up" || replay === "down" || replay === "later") return replay === "up";
+  return Date.now() < demoUntil || live.state === "up";
+};
 function stepBridge(dt, t) {
   const up = wantUp();
-  if (up) { gate = Math.min(1, gate + dt / 2.2); if (gate >= 1 && bridgeClear()) leaf = Math.min(1, leaf + dt / 7); }
-  else { leaf = Math.max(0, leaf - dt / 7); if (leaf <= 0) gate = Math.max(0, gate - dt / 2.2); }
+  const speed = timeOverride === null ? 1 : 4;   // scrubbing: keep up with the slider
+  if (up) { gate = Math.min(1, gate + (dt * speed) / 2.2); if (gate >= 1 && (bridgeClear() || speed > 1)) leaf = Math.min(1, leaf + (dt * speed) / 7); }
+  else { leaf = Math.max(0, leaf - (dt * speed) / 7); if (leaf <= 0) gate = Math.max(0, gate - (dt * speed) / 2.2); }
   if (((up && leaf < 1) || (!up && gate > 0)) && t - lastBell > 0.55) { sound.bell(); lastBell = t; }
   for (const h of leaves) h.rotation.x = -OPEN_ANGLE * ease(leaf);
   const g = ease(gate);
@@ -1424,6 +1490,11 @@ function frame() {
   sky.position.copy(camera.position);
   stars.position.copy(camera.position);
   driftCamera(dt, t);
+  // keep panning near the bridge
+  const tg = controls.target;
+  const r = Math.hypot(tg.x, tg.z);
+  if (r > 450) { tg.x *= 450 / r; tg.z *= 450 / r; }
+  tg.y = Math.min(80, Math.max(0, tg.y));
   controls.update();
   if (tiles && photoOn) {
     camera.updateMatrixWorld();
