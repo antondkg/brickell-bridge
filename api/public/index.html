@@ -14,176 +14,207 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <style>
-  /* One viewport: the real Brickell in 3D fills it, the answer sits on top. Mint = open to traffic, coral = raised. */
+  /* Live status over a real 3D Brickell. Design read: a single-purpose status tool for commuters on the go,
+     dark cinematic glass over the scene. Dials: variance 6, motion 5, density 4.
+     Color: mint is the one accent (live, active, primary action). Coral = bridge up / openings, amber = may open.
+     Shape: everything interactive is a pill; panels and cards are 16px; tiles inside cards are 12px; chart marks 4px. */
   :root {
-    --ink: #f4f6fb;
-    --ink-2: rgba(244, 246, 251, 0.74);
-    --ink-3: rgba(244, 246, 251, 0.52);
-    --glass: rgba(12, 18, 34, 0.46);
-    --glass-line: rgba(255, 255, 255, 0.14);
-    --down: #7cf0b4;
-    --up: #ff5d62;
+    --bg: #0a1020;
+    --bg-2: #0d1426;
+    --ink: #f2f4f8;
+    --ink-2: rgba(242, 244, 248, 0.74);
+    --ink-3: rgba(242, 244, 248, 0.52);
+    --glass: rgba(11, 17, 32, 0.5);
+    --glass-line: rgba(255, 255, 255, 0.12);
+    --hairline: rgba(255, 255, 255, 0.07);
+    --accent: #7cf0b4;
+    --on-accent: #052014;
+    --up: #ff6166;
+    --soon: #ffc24d;
     --wait: #c9d3ea;
+    --r-panel: 16px;
+    --r-tile: 12px;
     --display: "Anton", "Impact", "Arial Narrow", sans-serif;
     --body: "Archivo", -apple-system, "Helvetica Neue", Arial, sans-serif;
     --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
     --pad: max(16px, env(safe-area-inset-left));
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     color-scheme: dark;
   }
   * { box-sizing: border-box; margin: 0; }
-  html { background: #0a1020; }
-  body { min-height: 100%; overflow-x: hidden; background: #0a1020; color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
+  html { background: var(--bg); }
+  body { min-height: 100%; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
   canvas#scene { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; outline: none; }
+  .ph { font-size: 16px; line-height: 1; }
 
-  .hero { position: relative; height: 100dvh; pointer-events: none; }   /* the 3D canvas behind it gets the drag/wheel */
-  .ui { position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; padding: max(14px, env(safe-area-inset-top)) var(--pad) calc(max(14px, env(safe-area-inset-bottom)) + 30px); }
-  .ui > * { pointer-events: none; }
+  /* ---------- glass (approximation of frosted glass, solid fallback below) */
+  .glass { background: var(--glass); border: 1px solid var(--glass-line); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
+  @media (prefers-reduced-transparency: reduce) { .glass { background: rgba(11, 17, 32, .94); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+
+  /* ---------- hero: the canvas behind it receives drag and wheel */
+  .hero { position: relative; min-height: 100dvh; pointer-events: none; }
+  .ui { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; padding: max(14px, env(safe-area-inset-top)) var(--pad) max(14px, env(safe-area-inset-bottom)); }
   .ui a, .ui button, .ui input { pointer-events: auto; }
-  .shade { position: absolute; inset: auto 0 0 0; height: 60dvh; pointer-events: none;
-    background: linear-gradient(to top, rgba(6, 10, 22, .88), rgba(6, 10, 22, .5) 40%, rgba(6, 10, 22, 0)); }
-  .shade-top { position: absolute; inset: 0 0 auto 0; height: 110px; pointer-events: none; background: linear-gradient(to bottom, rgba(6,10,22,.5), rgba(6,10,22,0)); }
+  .shade { position: absolute; inset: auto 0 0 0; height: 62dvh; background: linear-gradient(to top, rgba(6, 10, 22, .9), rgba(6, 10, 22, .5) 42%, rgba(6, 10, 22, 0)); }
+  .shade-top { position: absolute; inset: 0 0 auto 0; height: 110px; background: linear-gradient(to bottom, rgba(6,10,22,.55), rgba(6,10,22,0)); }
 
-  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-  .brand { display: flex; align-items: center; gap: 10px; font: 500 12px var(--mono); color: var(--ink-2); }
-  .live { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 99px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--ink); font-weight: 600; font-size: 11px; letter-spacing: .12em; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; height: 40px; }
+  .brand { display: flex; align-items: center; gap: 12px; font: 600 14px var(--body); color: var(--ink); letter-spacing: -.01em; }
+  .live { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 99px; font: 600 11px var(--mono); letter-spacing: .12em; color: var(--ink); }
   .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--wait); }
-  .live.on i { background: var(--down); animation: ping 2s infinite; }
-  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(124,240,180,.6); } 100% { box-shadow: 0 0 0 9px rgba(124,240,180,0); } }
+  .live.on i { background: var(--accent); animation: ping 2.4s var(--ease-out) infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(124,240,180,.55); } 100% { box-shadow: 0 0 0 9px rgba(124,240,180,0); } }
   .actions { display: flex; gap: 8px; }
-  .pill { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 99px; border: 1px solid var(--glass-line); background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--ink); font: 600 12.5px var(--body); text-decoration: none; cursor: pointer; white-space: nowrap; transition: background .2s, border-color .2s, transform .15s, opacity .2s; }
-  .pill:hover { background: rgba(30, 40, 70, .62); border-color: rgba(255,255,255,.28); }
+  .pill { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 99px; color: var(--ink); font: 600 13px var(--body); text-decoration: none; cursor: pointer; white-space: nowrap; transition: background .2s, border-color .2s, transform .15s var(--ease-out), opacity .2s; }
+  button.pill { font-family: var(--body); }
+  .pill:hover { background: rgba(30, 40, 66, .7); border-color: rgba(255,255,255,.26); }
   .pill:active { transform: scale(.97); }
-  .pill[aria-pressed="true"] { background: rgba(124, 240, 180, .18); border-color: rgba(124, 240, 180, .5); }
+  .pill[aria-pressed="true"] { background: rgba(124, 240, 180, .16); border-color: rgba(124, 240, 180, .5); }
   .pill:disabled { opacity: .45; cursor: default; }
-  .pill:focus-visible, input:focus-visible, .clock button:focus-visible { outline: 2px solid var(--down); outline-offset: 2px; }
-  .pill svg { width: 15px; height: 15px; flex: none; }
-  .hide-sm { display: inline; }
-  .pill.hide-sm { display: inline-flex; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .answer { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-bottom: 12px; max-width: 760px; }
-  .q { font: 600 clamp(12px, 1.5vw, 15px) var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
-  .a { font: 400 clamp(96px, 20vw, 250px)/.9 var(--display); color: var(--wait); text-shadow: 0 6px 40px rgba(0,0,0,.35); transition: color .6s; display: flex; align-items: baseline; gap: .14em; margin-top: 4px; }
-  .a small { font: 600 clamp(15px, 2vw, 24px) var(--body); color: var(--ink-2); }
-  .a.down { color: var(--down); }
+  .answer { align-self: end; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-bottom: 18px; max-width: 640px; }
+  .q { font: 600 clamp(12px, 1.4vw, 14px) var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
+  .a { font: 400 clamp(96px, 19vw, 240px)/.92 var(--display); color: var(--wait); text-shadow: 0 6px 40px rgba(0,0,0,.35); display: flex; align-items: baseline; gap: .14em; transition: color .6s var(--ease-out); }
+  .a small { font: 600 clamp(15px, 1.9vw, 22px) var(--body); color: var(--ink-2); }
+  .a.down { color: var(--accent); }
   .a.up { color: var(--up); }
-  .sub { font: 500 clamp(15px, 1.7vw, 19px) var(--body); color: var(--ink); max-width: 40ch; text-wrap: balance; }
-  .forecast { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; padding: 9px 12px; border-radius: 12px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font: 500 13px var(--body); color: var(--ink-2); max-width: 46ch; }
-  .forecast b { color: var(--ink); font-weight: 650; }
-  .forecast .tag { flex: none; font: 600 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 6px; background: rgba(255,255,255,.1); color: var(--ink); margin-top: 1px; }
-  .forecast[hidden] { display: none; }
-  .next { display: inline-flex; align-items: center; gap: 9px; margin-top: 10px; padding: 7px 12px; border-radius: 99px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); font: 500 14px var(--body); color: var(--ink-2); }
-  .next[hidden] { display: none; }
-  .next i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); flex: none; }
-  .next.down i { background: var(--down); } .next.up i { background: var(--up); } .next.soon i { background: #ffc24d; }
-  .next b { color: var(--ink); font-weight: 650; }
-  .next small { font: 500 11px var(--mono); color: var(--ink-3); }
-  .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font: 500 12.5px var(--mono); color: var(--ink-2); }
-  .facts b { color: var(--ink); font-weight: 600; }
-  .demo-chip { display: none; margin-top: 10px; padding: 5px 10px; border-radius: 8px; background: rgba(255, 93, 98, .16); border: 1px solid rgba(255, 93, 98, .4); color: #ffd3d4; font: 600 12px var(--body); }
-  .demo-chip.on { display: inline-block; }
+  .a.changed { animation: settle .7s var(--ease-out); }
+  @keyframes settle { from { opacity: 0; transform: translateY(14px); } }
+  .sub { font: 500 clamp(15px, 1.6vw, 18px)/1.35 var(--body); color: var(--ink); max-width: 38ch; text-wrap: balance; }
 
-  .bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
-  .clock { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: 99px; border: 1px solid var(--glass-line); background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-  .clock label { font: 600 12px var(--mono); color: var(--ink); min-width: 9.5ch; }
+  /* one panel for what's next: South Miami Ave on top, schedule / boats / replay below */
+  .next { margin-top: 10px; width: min(460px, 100%); border-radius: var(--r-panel); padding: 12px 14px; display: grid; gap: 10px; }
+  .next[hidden] { display: none; }
+  .nb { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; font: 500 14px var(--body); color: var(--ink-2); }
+  .nb i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); }
+  .nb.down i { background: var(--accent); } .nb.up i { background: var(--up); } .nb.soon i { background: var(--soon); }
+  .nb b { color: var(--ink); font-weight: 650; }
+  .nb small { font: 500 11px var(--mono); color: var(--ink-3); }
+  .fc { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding-top: 10px; border-top: 1px solid var(--hairline); font: 500 13px/1.45 var(--body); color: var(--ink-2); }
+  .fc b { color: var(--ink); font-weight: 650; }
+  .fc .tag { font: 600 10.5px var(--mono); letter-spacing: .06em; padding: 3px 8px; border-radius: 99px; background: rgba(255,255,255,.09); color: var(--ink); white-space: nowrap; }
+  .fc.replay .tag { background: rgba(255, 97, 102, .18); color: #ffd0d2; }
+  .fc[hidden] { display: none; }
+
+  .bottom { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .clock { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 6px 0 16px; border-radius: 99px; }
+  .clock label { font: 600 12.5px var(--mono); color: var(--ink); min-width: 8.5ch; font-variant-numeric: tabular-nums; }
   .clock .track { position: relative; display: flex; align-items: center; }
   .clock .marks { position: absolute; left: 9px; right: 9px; top: 50%; height: 12px; transform: translateY(-50%); pointer-events: none; }
   .clock .marks i { position: absolute; top: 0; bottom: 0; min-width: 2px; border-radius: 1px; background: var(--up); box-shadow: 0 0 0 1px rgba(10,16,32,.6); }
-  .clock input { position: relative; -webkit-appearance: none; appearance: none; width: clamp(110px, 20vw, 210px); height: 4px; border-radius: 4px; background: linear-gradient(90deg, #0b1430, #ff9a5c 26%, #8fd0ff 50%, #ff8a4c 76%, #0b1430); cursor: pointer; }
-  .clock input::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); }
-  .clock input::-moz-range-thumb { width: 18px; height: 18px; border: 0; border-radius: 50%; background: #fff; }
-  .clock button { height: 28px; padding: 0 10px; border-radius: 99px; border: 0; background: rgba(255,255,255,.1); color: var(--ink); font: 600 11px var(--body); letter-spacing: .06em; cursor: pointer; }
-  .clock button[aria-pressed="true"] { background: var(--down); color: #062014; }
-  .demo { background: rgba(255, 93, 98, .2); border-color: rgba(255, 93, 98, .45); height: 40px; }
-  .demo:hover { background: rgba(255, 93, 98, .32); }
-  .foot { width: 100%; display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font: 500 11px var(--body); color: var(--ink-3); }
+  .clock input { position: relative; -webkit-appearance: none; appearance: none; width: clamp(130px, 20vw, 240px); height: 4px; border-radius: 4px; background: linear-gradient(90deg, #0b1430, #ff9a5c 26%, #8fd0ff 50%, #ff8a4c 76%, #0b1430); cursor: pointer; }
+  .clock input::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.45); }
+  .clock input::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: #fff; }
+  .clock button { height: 32px; padding: 0 12px; border-radius: 99px; border: 0; background: rgba(255,255,255,.1); color: var(--ink); font: 600 11px var(--mono); letter-spacing: .08em; cursor: pointer; }
+  .clock button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  .demo { height: 44px; }
+  .foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font: 500 11.5px var(--body); color: var(--ink-3); }
   .foot a { color: var(--ink-2); }
   .hint { transition: opacity 1s; }
 
-  .loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0a1020; z-index: 5; transition: opacity .9s; }
+  /* ---------- stats below the fold */
+  .stats-page { position: relative; z-index: 2; background: var(--bg-2); border-radius: 24px 24px 0 0; box-shadow: 0 -24px 60px rgba(4, 8, 18, .55); padding-inline: var(--pad); padding-block: 40px max(36px, env(safe-area-inset-bottom)); }
+  .stats-inner { max-width: 1040px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+  .stats-inner > h2 { grid-column: 1 / -1; margin-bottom: 6px; font: 400 clamp(34px, 5vw, 52px)/1 var(--display); letter-spacing: .01em; text-wrap: balance; }
+  .card { grid-column: span 3; background: rgba(255,255,255,.035); border: 1px solid var(--hairline); border-radius: var(--r-panel); padding: 18px; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card.two { grid-column: span 4; } .card.one { grid-column: span 2; }
+  .card h3 { margin: 0 0 14px; font: 650 15px var(--body); letter-spacing: -.01em; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .card h3 span { font: 500 12.5px var(--body); color: var(--ink-3); }
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s var(--ease-out), transform .7s var(--ease-out); transition-delay: var(--d, 0ms); }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* the three bridges you drive over, then the rest of the river */
+  .near { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .bt { border-radius: var(--r-tile); padding: 14px; background: rgba(255,255,255,.04); border: 1px solid transparent; display: grid; gap: 4px; }
+  .bt.up { border-color: rgba(255,97,102,.45); background: rgba(255,97,102,.08); }
+  .bt.soon { border-color: rgba(255,194,77,.4); background: rgba(255,194,77,.06); }
+  .bt .name { font: 600 13px var(--body); color: var(--ink-2); }
+  .bt .state { font: 400 34px/1 var(--display); letter-spacing: .01em; color: var(--accent); }
+  .bt.up .state { color: var(--up); } .bt.soon .state { color: var(--soon); } .bt.unknown .state { color: var(--wait); }
+  .bt .meta { font: 500 12px var(--body); color: var(--ink-3); }
+  .upriver { margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 14px; }
+  .ur { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; align-items: center; padding: 6px 0; font: 500 13px var(--body); color: var(--ink-2); }
+  .ur i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .ur i.up { background: var(--up); }
+  .ur span:last-child { font: 500 11.5px var(--mono); color: var(--ink-3); }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .tile { background: rgba(255,255,255,.04); border-radius: var(--r-tile); padding: 12px; }
+  .tile .v { font: 700 26px/1.1 var(--body); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .tile .v small { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-left: 1px; letter-spacing: 0; }
+  .tile .k { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+  .tl { position: relative; height: 32px; border-radius: 8px; background: rgba(124,240,180,.1); overflow: hidden; margin-top: 14px; }
+  .tl .f { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(255,255,255,.04); }
+  .tl .b { position: absolute; top: 0; bottom: 0; background: var(--up); min-width: 3px; border-radius: 2px; }
+  .tl .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+  .ticks { display: flex; justify-content: space-between; font: 500 10.5px var(--mono); color: var(--ink-3); margin-top: 6px; }
+  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; align-items: end; height: 140px; }
+  .bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; font: 600 11.5px var(--mono); color: var(--ink-2); }
+  .bar div { width: 100%; max-width: 36px; border-radius: 4px 4px 2px 2px; background: rgba(255,97,102,.45); }
+  .bar.today div { background: repeating-linear-gradient(135deg, var(--up) 0 3px, rgba(255,97,102,.45) 3px 6px); }
+  .bar span { font-weight: 500; color: var(--ink-3); }
+  .hm { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 3px; font: 500 10px var(--mono); color: var(--ink-3); align-items: center; }
+  .hm i { aspect-ratio: 1; border-radius: 3px; }
+  .hist { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; align-items: end; height: 118px; }
+  .hist div { border-radius: 4px 4px 2px 2px; background: rgba(255,97,102,.45); position: relative; }
+  .hist div.med { background: var(--up); }
+  .hist div b { position: absolute; top: -17px; left: 0; right: 0; text-align: center; font: 600 10.5px var(--mono); color: var(--ink-2); }
+  .hist-x { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; text-align: center; font: 500 10.5px var(--mono); color: var(--ink-3); margin-top: 6px; }
+  .empty { color: var(--ink-3); font-size: 14px; line-height: 1.55; max-width: 48ch; }
+
+  .short { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 24px; align-items: center; background: linear-gradient(135deg, rgba(124,240,180,.10), rgba(124,240,180,.02) 60%); border-color: rgba(124,240,180,.18); }
+  .short h3 { font-size: 22px; margin-bottom: 6px; }
+  .short p { color: var(--ink-2); font-size: 14px; line-height: 1.5; margin-bottom: 16px; max-width: 34ch; }
+  .short ol { padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+  .short ol b { color: var(--ink); }
+  .get { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 20px; border-radius: 99px; background: var(--accent); color: var(--on-accent); font: 700 14.5px var(--body); text-decoration: none; white-space: nowrap; transition: transform .15s var(--ease-out); }
+  .get:active { transform: scale(.97); }
+  .credits { grid-column: 1 / -1; color: var(--ink-3); font-size: 12.5px; line-height: 1.6; text-align: center; margin-top: 12px; }
+  .credits a { color: var(--ink-2); }
+
+  .loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 5; transition: opacity .9s var(--ease-out); }
   .loading.gone { opacity: 0; pointer-events: none; }
   .loading div { display: flex; flex-direction: column; align-items: center; gap: 14px; font: 600 12px var(--mono); letter-spacing: .14em; color: var(--ink-2); text-transform: uppercase; }
   .loading i { width: 160px; height: 3px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-  .loading i::after { content: ""; display: block; height: 100%; width: var(--p, 10%); background: var(--down); transition: width .3s; }
-  .scroll-cue { position: absolute; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); pointer-events: auto; color: var(--ink-3); font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; text-decoration: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .scroll-cue svg { width: 18px; height: 18px; animation: bob 2s ease-in-out infinite; }
-  @keyframes bob { 50% { transform: translateY(3px); } }
-
-  /* stats below the fold */
-  .stats-page { position: relative; z-index: 2; background: #0b1122; border-radius: 22px 22px 0 0; box-shadow: 0 -20px 60px rgba(0,0,0,.4); padding-inline: var(--pad); padding-block: 28px max(32px, env(safe-area-inset-bottom)); }
-  .stats-inner { max-width: 980px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  .stats-inner > h2 { grid-column: 1 / -1; margin: 0 0 4px; font: 400 clamp(30px, 5vw, 44px)/1 var(--display); letter-spacing: .01em; }
-  .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 16px; min-width: 0; }
-  .card.wide { grid-column: 1 / -1; }
-  .card h3 { margin: 0 0 12px; font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); display: flex; justify-content: space-between; gap: 10px; }
-  .card h3 span { letter-spacing: 0; text-transform: none; font-family: var(--body); font-weight: 500; }
-  .rows { display: flex; flex-direction: column; }
-  .row { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid rgba(255,255,255,.06); font-size: 14px; }
-  .row:first-child { border-top: 0; padding-top: 0; }
-  .row i { width: 10px; height: 10px; border-radius: 50%; background: var(--wait); }
-  .row i.up { background: var(--up); } .row i.down { background: var(--down); } .row i.soon { background: #ffc24d; }
-  .row b { font-weight: 650; }
-  .row small { display: block; color: var(--ink-3); font-size: 12px; }
-  .row .n { font: 600 12px var(--mono); color: var(--ink-2); text-align: right; }
-  .row.hl { background: rgba(124,240,180,.05); margin-inline: -8px; padding-inline: 8px; border-radius: 10px; }
-  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .tile { background: rgba(255,255,255,.04); border-radius: 12px; padding: 10px; }
-  .tile .v { font: 700 24px/1.1 var(--body); font-variant-numeric: tabular-nums; }
-  .tile .v small { font-size: 12px; color: var(--ink-2); margin-left: 1px; }
-  .tile .k { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
-  .tl { position: relative; height: 30px; border-radius: 8px; background: rgba(124,240,180,.12); overflow: hidden; margin-top: 12px; }
-  .tl .f { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(255,255,255,.05); }
-  .tl .b { position: absolute; top: 0; bottom: 0; background: var(--up); min-width: 3px; border-radius: 2px; }
-  .tl .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); }
-  .ticks { display: flex; justify-content: space-between; font: 500 10px var(--mono); color: var(--ink-3); margin-top: 4px; }
-  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; height: 130px; }
-  .bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; font: 600 11px var(--mono); color: var(--ink-2); }
-  .bar div { width: 100%; max-width: 34px; border-radius: 5px 5px 2px 2px; background: rgba(120,160,255,.55); }
-  .bar.today div { background: repeating-linear-gradient(135deg, #6b9bff 0 3px, rgba(107,155,255,.5) 3px 6px); }
-  .bar span { font-weight: 500; color: var(--ink-3); }
-  .hm { display: grid; grid-template-columns: 30px repeat(24, minmax(0, 1fr)); gap: 2px; font: 500 9.5px var(--mono); color: var(--ink-3); }
-  .hm i { aspect-ratio: 1; border-radius: 2px; }
-  .hist { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; height: 110px; }
-  .hist div { border-radius: 5px 5px 2px 2px; background: rgba(255,93,98,.5); position: relative; }
-  .hist div.med { background: var(--up); }
-  .hist div b { position: absolute; top: -16px; left: 0; right: 0; text-align: center; font: 600 10px var(--mono); color: var(--ink-2); }
-  .hist-x { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; text-align: center; font: 500 10px var(--mono); color: var(--ink-3); margin-top: 4px; }
-  .empty { color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
-  .short { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
-  .short ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); }
-  .short ol b { color: var(--ink); }
-  .get { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 12px; background: var(--down); color: #062014; font: 700 14px var(--body); text-decoration: none; white-space: nowrap; }
-  .credits { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; text-align: center; margin-top: 8px; }
-  .credits a { color: var(--ink-2); }
-  @media (max-width: 640px) {
-    .stats-inner { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .short { grid-template-columns: minmax(0, 1fr); }
-    .get { justify-self: start; }
-    .hm { grid-template-columns: 26px repeat(24, minmax(0, 1fr)); gap: 1px; }
-  }
-
-  .toast { position: fixed; left: 50%; top: max(64px, calc(env(safe-area-inset-top) + 56px)); transform: translateX(-50%); padding: 8px 14px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(10px); font: 500 12.5px var(--body); color: var(--ink); opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .loading i::after { content: ""; display: block; height: 100%; width: var(--p, 10%); background: var(--accent); transition: width .3s; }
+  .toast { position: fixed; left: 50%; top: max(66px, calc(env(safe-area-inset-top) + 58px)); transform: translateX(-50%); padding: 9px 16px; border-radius: 99px; font: 500 13px var(--body); color: var(--ink); opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 4; }
   .toast.on { opacity: 1; }
 
+  .sm-hide { display: inline; }
+  .pill.sm-hide { display: inline-flex; }
+  @media (max-width: 860px) {
+    .card, .card.two, .card.one { grid-column: 1 / -1; }
+  }
   @media (max-width: 640px) {
-    .hide-sm { display: none; }
-    .answer { padding-bottom: 6px; }
-    .forecast { font-size: 12.5px; }
-    .bottom { gap: 8px; }
-    .controls { width: 100%; }
-    .clock { flex: 1 1 260px; min-width: 0; }
-    .demo { flex: 1 1 auto; justify-content: center; }
+    .sm-hide, .pill.sm-hide { display: none; }
+    .pill.icon-sm { width: 36px; padding: 0; }
+    .answer { padding-bottom: 12px; }
+    .next { width: 100%; }
+    .bottom > * { flex: 1 1 100%; }
     .clock .track { flex: 1; min-width: 60px; }
-    .clock input { flex: 1; width: 100%; min-width: 60px; }
+    .clock input { width: 100%; }
     .foot { flex-direction: column; gap: 2px; }
+    .stats-page { padding-block: 28px max(28px, env(safe-area-inset-bottom)); }
+    .stats-inner { gap: 12px; }
+    .near { grid-template-columns: minmax(0, 1fr); }
+    .bt { grid-template-columns: 1fr auto; align-items: center; }
+    .bt .state { grid-row: 1 / 3; grid-column: 2; font-size: 30px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .short { grid-template-columns: minmax(0, 1fr); }
+    .hm { grid-template-columns: 28px repeat(24, minmax(0, 1fr)); gap: 1px; }
   }
   @media (max-height: 600px) and (orientation: landscape) {
-    .a { font-size: clamp(72px, 17vh, 150px); }
-    .facts, .foot .hint, .forecast { display: none; }
+    .a { font-size: clamp(70px, 17vh, 150px); }
+    .foot .hint, .fc { display: none; }
   }
-  @media (prefers-reduced-motion: reduce) { .live.on i { animation: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .live.on i, .a.changed { animation: none; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
 </style>
 <script type="importmap">
 { "imports": {
@@ -197,83 +228,72 @@
 <body>
 <canvas id="scene" aria-label="3D view of the Brickell Avenue Bridge and the Brickell skyline"></canvas>
 <div class="hero">
-<div class="shade-top"></div>
-<div class="shade"></div>
+  <div class="shade-top"></div>
+  <div class="shade"></div>
+  <main class="ui">
+    <header class="top">
+      <div class="brand"><span class="live glass" id="live"><i></i>LIVE</span><span class="sm-hide">Brickell Bridge</span></div>
+      <nav class="actions" aria-label="Page">
+        <a class="pill glass" href="#stats"><i class="ph ph-chart-bar" aria-hidden="true"></i>Stats</a>
+        <button class="pill glass icon-sm" id="photo" aria-pressed="false" disabled title="Google photorealistic 3D"><i class="ph ph-buildings" aria-hidden="true"></i><span class="sm-hide">Photoreal</span></button>
+        <button class="pill glass icon-sm" id="sound" aria-pressed="false" title="Bells and horns"><i class="ph ph-speaker-slash" id="soundIcon" aria-hidden="true"></i><span class="sm-hide">Sound</span></button>
+        <a class="pill glass sm-hide" href="https://github.com/antondkg/brickell-bridge" target="_blank" rel="noopener"><i class="ph ph-apple-logo" aria-hidden="true"></i>Mac app</a>
+      </nav>
+    </header>
 
-<main class="ui">
-  <header class="top">
-    <div class="brand"><span class="live" id="live"><i></i>LIVE</span><span class="hide-sm">Brickell Avenue Bridge · Miami River</span></div>
-    <nav class="actions">
-      <button class="pill" id="photo" aria-pressed="false" disabled title="Google photorealistic 3D">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V9l7-5 7 5v12"/><path d="M9 21v-6h6v6"/></svg>
-        <span>Photoreal</span>
-      </button>
-      <button class="pill" id="sound" aria-pressed="false" title="Bells and horns">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" opacity=".35"/></svg>
-        <span class="hide-sm">Sound</span>
-      </button>
-      <a class="pill hide-sm" href="https://github.com/antondkg/brickell-bridge" target="_blank" rel="noopener">Mac app</a>
-    </nav>
-  </header>
+    <div></div>
 
-  <div></div>
+    <section class="answer" aria-live="polite">
+      <p class="q">Is Brickell Bridge up?</p>
+      <h1 class="a" id="answer">…</h1>
+      <p class="sub" id="sub">Checking FL511…</p>
+      <div class="next glass" id="next" hidden>
+        <div class="nb" id="sm"></div>
+        <div class="fc" id="fc" hidden><span class="tag" id="fcTag">Schedule</span><span id="fcText"></span></div>
+      </div>
+    </section>
 
-  <section class="answer" aria-live="polite">
-    <p class="q">Is Brickell Bridge up?</p>
-    <h1 class="a" id="answer">…</h1>
-    <p class="sub" id="sub">Checking FL511…</p>
-    <div class="next" id="next" hidden></div>
-    <div class="forecast" id="forecast" hidden><span class="tag" id="fcTag">Schedule</span><span id="fcText"></span></div>
-    <div class="facts" id="facts"></div>
-    <span class="demo-chip" id="demoChip"></span>
-  </section>
-
-  <footer>
-    <div class="bottom">
-      <div class="controls">
-        <div class="clock">
-          <label for="time" id="timeLabel">Miami --:--</label>
-          <span class="track"><span class="marks" id="marks" aria-hidden="true"></span><input id="time" type="range" min="0" max="1439" step="1" aria-label="Time of day in Miami: replays today's openings"></span>
+    <footer>
+      <div class="bottom">
+        <div class="clock glass">
+          <label for="time" id="timeLabel">--:--</label>
+          <span class="track"><span class="marks" id="marks" aria-hidden="true"></span><input id="time" type="range" min="0" max="1439" step="1" aria-label="Time of day in Miami. Off live, it replays today's openings."></span>
           <button id="liveTime" aria-pressed="true">LIVE</button>
         </div>
-        <button class="pill demo" id="demo">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-          Watch it open
-        </button>
+        <button class="pill glass demo" id="demo"><i class="ph ph-play" aria-hidden="true"></i>Watch it open</button>
       </div>
-    </div>
-    <div class="foot">
-      <span class="hint" id="hint">Drag to rotate · right-drag to pan · scroll to zoom</span>
-      <span>Unofficial · status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a> · map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · imagery © Miami-Dade County<span id="googleCredit" hidden> · 3D © Google</span> · <a href="/v1/status">API</a></span>
-    </div>
-  </footer>
-</main>
-<a class="scroll-cue" href="#stats">Stats<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></a>
+      <div class="foot">
+        <span class="hint" id="hint">Drag to rotate, right-drag to pan, scroll to zoom</span>
+        <span>Data from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a>, OpenStreetMap and Miami-Dade County<span id="googleCredit" hidden>, 3D from Google</span></span>
+      </div>
+    </footer>
+  </main>
 </div>
 
 <section class="stats-page" id="stats" aria-label="Bridge stats">
   <div class="stats-inner">
     <h2>The river, by the numbers</h2>
-    <div class="card wide"><h3>Miami River bridges <span>from the bay up</span></h3><div class="rows" id="riverRows"><p class="empty">Loading…</p></div></div>
-    <div class="card wide"><h3>Today at Brickell <span id="todayLabel"></span></h3><div class="tiles" id="todayTiles"></div><div class="tl" id="todayTl"></div><div class="ticks"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div></div>
-    <div class="card"><h3>Last 7 days <span id="weekTotal"></span></h3><div class="bars" id="weekBars"></div></div>
-    <div class="card"><h3>How long it stays up <span id="durNote"></span></h3><div id="durBox"></div></div>
-    <div class="card wide"><h3>When it opens <span>openings per hour, Miami time</span></h3><div id="hmBox"></div></div>
-    <div class="card wide short" id="shortcut">
+    <div class="card wide reveal"><h3>On your way <span>South Miami Ave is estimated</span></h3><div class="near" id="nearBridges"></div><div class="upriver" id="upriver"></div></div>
+    <div class="card wide reveal"><h3>Today at Brickell <span id="todayLabel"></span></h3><div class="tiles" id="todayTiles"></div><div class="tl" id="todayTl"></div><div class="ticks"><span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span></div></div>
+    <div class="card two reveal"><h3>Last 7 days <span id="weekTotal"></span></h3><div class="bars" id="weekBars"></div></div>
+    <div class="card one reveal"><h3>How long it stays up <span id="durNote"></span></h3><div id="durBox"></div></div>
+    <div class="card wide reveal"><h3>When it opens <span>per hour, Miami time</span></h3><div id="hmBox"></div></div>
+    <div class="card wide short reveal" id="shortcut">
       <div>
-        <h3>On your iPhone</h3>
-        <a class="get" href="/bridge-status.shortcut">Get the shortcut</a>
+        <h3>Check it from the car</h3>
+        <p>A shortcut that sends both bridges as a notification the moment your phone connects to the car.</p>
+        <a class="get" href="/bridge-status.shortcut"><i class="ph ph-device-mobile" aria-hidden="true"></i>Get the shortcut</a>
       </div>
       <ol>
-        <li>Tap <b>Get the shortcut</b> on your iPhone and add it. It shows both bridges as a notification.</li>
+        <li>Open this page on your iPhone, tap <b>Get the shortcut</b>, and add it.</li>
         <li>In Shortcuts, go to <b>Automation</b>, tap <b>+</b>, choose <b>Bluetooth</b>, and pick your car.</li>
         <li>Choose <b>Is Connected</b>, set it to <b>Run Immediately</b>, and select <b>Bridge Status</b>.</li>
       </ol>
     </div>
-    <p class="credits">Unofficial. Status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a>, boats from AIS, South Miami Avenue estimated. <a href="https://github.com/antondkg/brickell-bridge" target="_blank" rel="noopener">Open source</a> · <a href="/v1/summary">API</a></p>
+    <p class="credits">Unofficial. Bridge status from <a href="https://fl511.com" target="_blank" rel="noopener">FL511</a>, boats from AIS, and South Miami Avenue estimated from its neighbors.<br>Map from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, aerial photos from Miami-Dade County, photoreal 3D from Google. <a href="https://github.com/antondkg/brickell-bridge" target="_blank" rel="noopener">Open source</a>, with a public <a href="/v1/summary">API</a>.</p>
   </div>
 </section>
-<div class="toast" id="toast"></div>
+<div class="toast glass" id="toast"></div>
 <div class="loading" id="loading"><div><span id="loadText">Loading Brickell</span><i id="loadBar"></i></div></div>
 
 <script type="module">
@@ -355,8 +375,10 @@ let idle = true, idleTimer, baseRadius = 640;
 controls.addEventListener("start", () => { idle = false; clearTimeout(idleTimer); $("hint").style.opacity = 0; });
 controls.addEventListener("end", () => { idleTimer = setTimeout(() => (idle = true), 9000); });
 const _off = new THREE.Vector3();
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (MOBILE) $("hint").textContent = "Swipe sideways to rotate, pinch to zoom";
 function driftCamera(dt, t) {
-  if (!idle) return;
+  if (!idle || REDUCED_MOTION) return;
   _off.copy(camera.position).sub(controls.target);
   sph.setFromVector3(_off);
   const goal = VIEW_THETA + Math.sin(t * 0.045) * 0.3;
@@ -1276,18 +1298,24 @@ function renderStats() {
   renderMarks();
   const rv = live.river;
   if (rv) {
-    $("riverRows").innerHTML = rv.bridges.map((b) => {
-      let cls = b.state === "up" ? "up" : b.state === "down" ? "down" : "";
-      let text = b.state === "up" ? "Up" : b.state === "down" ? "Down" : "Unknown";
+    const NEAR = ["brickell", "south-miami", "sw-2nd-ave"];
+    const view = (b) => {
       if (b.source === "estimated") {
-        cls = { "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[b.state] ?? "";
-        text = { "likely-up": "Likely up", "opening-soon": "May open next", "likely-down": "Likely down" }[b.state] ?? "Unknown";
+        const cls = { "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[b.state] ?? "unknown";
+        const word = { "likely-up": "Likely up", "opening-soon": "May open", "likely-down": "Likely down" }[b.state] ?? "Unknown";
+        return { cls, word, meta: b.reason, count: b.inferredToday };
       }
-      const since = b.since ? ` since ${fmtTime(new Date(b.since))}` : "";
-      const detail = b.source === "estimated" ? `Estimated · ${b.reason}` : `${text}${since}`;
-      const count = b.source === "estimated" ? b.inferredToday : b.openingsToday;
-      const hl = b.key === "brickell" || b.key === "south-miami" ? " hl" : "";
-      return `<div class="row${hl}"><i class="${cls}"></i><div><b>${b.name}</b> · ${text}<small>${detail}</small></div><span class="n">${count ?? 0} today</span></div>`;
+      const cls = b.state === "up" || b.state === "down" ? b.state : "unknown";
+      const word = { up: "Up", down: "Down" }[b.state] ?? "Unknown";
+      return { cls, word, meta: b.since ? `${word} since ${fmtTime(new Date(b.since))}` : "No change logged yet", count: b.openingsToday };
+    };
+    $("nearBridges").innerHTML = rv.bridges.filter((b) => NEAR.includes(b.key)).map((b) => {
+      const v = view(b);
+      return `<div class="bt ${v.cls}"><span class="name">${b.name}</span><span class="state">${v.word}</span><span class="meta">${v.meta.replace(/\.$/, "")}. ${v.count ?? 0} today.</span></div>`;
+    }).join("");
+    $("upriver").innerHTML = rv.bridges.filter((b) => !NEAR.includes(b.key)).map((b) => {
+      const v = view(b);
+      return `<div class="ur" title="${v.meta}"><i class="${v.cls}"></i><span>${b.name}</span><span>${v.word.toLowerCase()}</span></div>`;
     }).join("");
   }
   const ops = live.openings;
@@ -1338,13 +1366,14 @@ function renderStats() {
     const weeks = Math.max(1, trackedDays / 7), mxh = Math.max(0.01, ...order.flatMap((d) => grid[d])) / weeks;
     $("hmBox").innerHTML = `<div class="hm">${order.map((d) => `<span>${d}</span>` + grid[d].map((v, h) => {
       const t = v / weeks / mxh;
-      return `<i title="${d} ${h}:00 · ${(v / weeks).toFixed(1)} per week" style="background:${t > 0 ? `rgba(107,155,255,${0.15 + 0.85 * t})` : "rgba(255,255,255,.05)"}"></i>`;
+      return `<i title="${d} ${h}:00, ${(v / weeks).toFixed(1)} per week" style="background:${t > 0 ? `rgba(255,97,102,${0.14 + 0.86 * t})` : "rgba(255,255,255,.05)"}"></i>`;
     }).join("")).join("")}</div>`;
   } else {
     $("hmBox").innerHTML = `<p class="empty">Patterns show up after a few days of history. Tracking started ${live.trackingSince.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ })}.</p>`;
   }
 }
 
+let lastAnswer = "";
 function render() {
   const a = $("answer"), sub = $("sub");
   a.classList.remove("up", "down");
@@ -1352,16 +1381,21 @@ function render() {
   else if (live.state === "up") {
     a.classList.add("up"); a.innerHTML = "YES<small>raised</small>";
     const mins = live.since ? (Date.now() - live.since) / 60000 : 0;
-    let s = live.since ? `Up since ${fmtTime(live.since)} · ${fmtDur(mins)}. Closed to traffic.` : "Closed to traffic.";
+    let s = live.since ? `Up since ${fmtTime(live.since)}, ${fmtDur(mins)} so far. Closed to traffic.` : "Closed to traffic.";
     if (live.median && live.since) s += mins < live.median ? ` Usually back down around ${fmtTime(new Date(+live.since + live.median * 60000))}.` : " Any minute now.";
     sub.textContent = s;
   } else if (live.state === "down") {
     a.classList.add("down"); a.innerHTML = "NO<small>open to traffic</small>";
-    sub.textContent = live.since ? `Down since ${fmtTime(live.since)} · ${fmtDur((Date.now() - live.since) / 60000)}. Go ahead.` : "Open to traffic.";
+    sub.textContent = live.since ? `Down since ${fmtTime(live.since)}, ${fmtDur((Date.now() - live.since) / 60000)} ago. Go ahead.` : "Open to traffic.";
   } else { a.textContent = "?"; sub.textContent = "FL511 isn't reporting a status right now."; }
+  if (live.loaded && live.state !== lastAnswer) {   // the answer just changed: let it settle in
+    if (lastAnswer) { a.classList.remove("changed"); void a.offsetWidth; a.classList.add("changed"); }
+    lastAnswer = live.state;
+  }
 
   const f = live.forecast;
-  $("forecast").hidden = !f;
+  $("fc").hidden = !f;
+  $("fc").classList.remove("replay");
   if (f) {
     const until = f.modeUntil ? fmtTime(new Date(f.modeUntil)) : null;
     const slots = (f.nextSlots || []).map((s) => fmtTime(new Date(s)));
@@ -1378,12 +1412,13 @@ function render() {
   }
   // the next bridge up the river, estimated from Brickell, SW 2nd Ave and AIS
   const sm = f?.southMiami;
-  $("next").hidden = !sm;
+  $("next").hidden = !f;
+  $("sm").hidden = !sm;
   if (sm) {
     const label = { "likely-up": "likely up", "opening-soon": "may open next", "likely-down": "likely down" }[sm.state];
-    $("next").className = `next ${{ "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[sm.state]}`;
-    $("next").innerHTML = `<i></i><span>South Miami Ave: <b>${label}</b> <small>est.</small></span>`;
-    $("next").title = sm.reason;
+    $("sm").className = `nb ${{ "likely-up": "up", "opening-soon": "soon", "likely-down": "down" }[sm.state]}`;
+    $("sm").innerHTML = `<i></i><span>South Miami Ave bridge <b>${label}</b></span><small>estimate</small>`;
+    $("sm").title = sm.reason;
   }
   // An upstream bridge just opened: a boat is probably on its way down to Brickell.
   if (f?.upstream && live.state !== "up") {
@@ -1397,18 +1432,21 @@ function render() {
     $("fcTag").textContent = "Boat coming";
     $("fcText").innerHTML = `${who} is heading for the bridge from the ${boat.side}, about <b>${boat.etaMin} min</b> out. It'll likely need an opening.`;
   }
-  $("facts").innerHTML = live.loaded
-    ? `<span>Today <b>${live.todayCount}</b> openings</span><span><b>${fmtDur(live.todayMin)}</b> up</span>` + (live.median ? `<span>Typical opening <b>${fmtDur(live.median)}</b></span>` : "")
-    : "";
+  // the demo and the time-slider replay take over the panel's second line while they run
   const demo = Date.now() < demoUntil;
   const replay = replayState();
-  let chip = demo ? `Demo animation. The real bridge is ${live.state === "up" ? "up" : "down"}.` : "";
+  let note = demo ? `This is a demo. The real bridge is ${live.state === "up" ? "up" : "down"}.` : "";
   if (replay) {
-    const when = hourLabel(timeOverride).replace("Miami ", "");
-    chip = replay === "later" ? `Replaying today: ${when} hasn't happened yet.` : `Replaying today at ${when}: the bridge was ${replay === "up" ? "up" : "down"}.`;
+    const when = hourLabel(timeOverride);
+    note = replay === "later" ? `${when} hasn't happened yet today.` : `At ${when} today the bridge was <b>${replay === "up" ? "up" : "down"}</b>.`;
   }
-  $("demoChip").classList.toggle("on", !!chip);
-  $("demoChip").textContent = chip;
+  if (note) {
+    $("next").hidden = false;
+    $("fc").hidden = false;
+    $("fc").classList.add("replay");
+    $("fcTag").textContent = demo && !replay ? "Demo" : "Replay";
+    $("fcText").innerHTML = note;
+  }
 }
 
 // ---------------------------------------------------------------- controls
@@ -1421,7 +1459,7 @@ function miamiHourNow() {
   const p = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date());
   return +p.find((x) => x.type === "hour").value + +p.find((x) => x.type === "minute").value / 60;
 }
-const hourLabel = (h) => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60); return `Miami ${(hh % 12) || 12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "AM" : "PM"}`; };
+const hourLabel = (h) => { const hh = Math.floor(h) % 24, mm = Math.floor((h % 1) * 60); return `${(hh % 12) || 12}:${String(mm).padStart(2, "0")} ${hh < 12 ? "AM" : "PM"}`; };
 timeInput.addEventListener("input", () => { timeOverride = timeInput.value / 60; liveBtn.setAttribute("aria-pressed", "false"); render(); });
 liveBtn.addEventListener("click", () => { timeOverride = null; liveBtn.setAttribute("aria-pressed", "true"); render(); });
 $("demo").addEventListener("click", () => { demoUntil = Date.now() + 60000; nextTall = 0; render(); setTimeout(render, 60100); });
@@ -1429,7 +1467,7 @@ $("photo").addEventListener("click", () => { if (!photoOn && !tiles) toast("Load
 $("sound").addEventListener("click", () => {
   const on = sound.toggle();
   $("sound").setAttribute("aria-pressed", on);
-  $("wave").setAttribute("opacity", on ? "1" : ".35");
+  $("soundIcon").className = `ph ${on ? "ph-speaker-high" : "ph-speaker-slash"}`;
   if (on) sound.bell();
 });
 
@@ -1505,6 +1543,12 @@ function frame() {
   // Local development: keep rendering in hidden tabs (browsers pause requestAnimationFrame there).
   if (document.hidden && location.hostname === "localhost") setTimeout(frame, 33);
   else requestAnimationFrame(frame);
+}
+
+// stats cards ease in as they scroll into view, a few at a time
+{
+  const io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { rootMargin: "0px 0px -8% 0px" });
+  document.querySelectorAll(".reveal").forEach((el, i) => { el.style.setProperty("--d", `${(i % 3) * 70}ms`); io.observe(el); });
 }
 
 (async () => {
